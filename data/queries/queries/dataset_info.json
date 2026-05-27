@@ -1,0 +1,46 @@
+{
+  "builder_name": "parquet",
+  "citation": "",
+  "config_name": "queries",
+  "dataset_name": "nfcorpus",
+  "dataset_size": 141303,
+  "description": "",
+  "download_checksums": {
+    "hf://datasets/BeIR/nfcorpus@b5026a0e96e8a7ac4f95f482a596389289d46269/queries/queries-00000-of-00001.parquet": {
+      "num_bytes": 80929,
+      "checksum": null
+    }
+  },
+  "download_size": 80929,
+  "features": {
+    "_id": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "title": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "text": {
+      "dtype": "string",
+      "_type": "Value"
+    }
+  },
+  "homepage": "",
+  "license": "",
+  "size_in_bytes": 222232,
+  "splits": {
+    "queries": {
+      "name": "queries",
+      "num_bytes": 141303,
+      "num_examples": 3237,
+      "dataset_name": "nfcorpus"
+    }
+  },
+  "version": {
+    "version_str": "0.0.0",
+    "major": 0,
+    "minor": 0,
+    "patch": 0
+  }
+}
