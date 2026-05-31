@@ -9,7 +9,7 @@ import pandas as pd
 import torch
 
 from utils import AddTokens
-
+from model import device
 
 class NFCorpusDataset(Dataset):
 	def __init__(self, qrels_path, queries_path, corpus_path, num_negatives):
@@ -56,7 +56,8 @@ class NFCorpusDataset(Dataset):
 			'positive_texts': [self.corpus[cid] for cid in pos_ids],
 			'negative_texts': [self.corpus[cid] for cid in neg_ids]
 		}
-  
+
+
 class MultiNCELoss(nn.Module):
   def __init__(self, temp=0.3):
     super().__init__()
@@ -64,19 +65,19 @@ class MultiNCELoss(nn.Module):
     self.temp = temp
     
   def calc_loss(self, que_vec, pos_vecs, neg_vecs):
-    que_vec = (que_vec / F.normalize(que_vec, dim=1, keepdim=True)).unsqueeze(1)
-    pos_vecs = pos_vecs / F.normalize(pos_vecs, dim=1, keepdim=True)
-    neg_vecs = neg_vecs / F.normalize(neg_vecs, dim=1, keepdim=True)
+    que_vec = (F.normalize(que_vec, p=2, dim=1)).unsqueeze(1)
+    pos_vecs = F.normalize(pos_vecs, p=2, dim=2)
+    neg_vecs = F.normalize(neg_vecs, p=2, dim=2)
     
     pos_logits = (que_vec * pos_vecs).sum(dim=-1) / self.temp
-    neg_logits = (que_vec * neg_sim).sum(dim=-1) / self.temp
+    neg_logits = (que_vec * neg_vecs).sum(dim=-1) / self.temp
     
     pos_exp = torch.exp(pos_logits)
     neg_exp = torch.exp(neg_logits)
     
     numer = pos_exp.sum(dim=-1)
-    denom = numer + denom.sum(dim=-1)
+    denom = numer + neg_exp.sum(dim=-1)
     
-    loss = -torch.log(numer / denom)
+    loss = -torch.log((numer + 1e-8) / (denom + 1e-8))
     
     return torch.mean(loss)
