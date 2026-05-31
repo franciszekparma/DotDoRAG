@@ -129,14 +129,14 @@ def main():
   
   train_dl = DataLoader(
     train_ds,
-    batch_size=64,
+    batch_size=32,
     shuffle=True,
     drop_last=True,
     collate_fn=collate_fn
   )
   test_dl = DataLoader(
     test_ds,
-    batch_size=64,
+    batch_size=32,
     shuffle=False,
     drop_last=False,
     collate_fn=collate_fn
@@ -150,7 +150,7 @@ def main():
     lora_dropout=0.05,
     bias="none",
     task_type=None,
-    init_lora_weights='olora'
+    init_lora_weights=True
   )
   model.enc = get_peft_model(model.enc, peft_config)
 
@@ -177,7 +177,9 @@ def main():
     for n_batch, X in enumerate(train_dl):
       queries, positives, negatives = X['query'], X['positives'], X['negatives']
       queries, positives, negatives = {k: v.to(device) for k, v in queries.items()}, {k: v.to(device) for k, v in positives.items()}, {k: v.to(device) for k, v in negatives.items()}
-      
+      print(queries['input_ids'].shape)
+      print(positives['input_ids'].shape)
+      print(negatives['input_ids'].shape)
       que_vecs, pos_vecs, neg_vecs = model(queries, positives, negatives)
       
       loss = loss_fn.calc_loss(que_vecs, pos_vecs, neg_vecs)
@@ -202,7 +204,7 @@ def main():
       
     
     print(f"Epoch: {epoch}")
-    printf(f"Train Loss: {sum(train_losses) / len(train_losses):.4f} | Test Loss: {sum(test_losses) / len(test_losses):.4f}")
+    print(f"Train Loss: {sum(train_losses) / len(train_losses):.4f} | Test Loss: {sum(test_losses) / len(test_losses):.4f}")
   
 
 if __name__ == '__main__':

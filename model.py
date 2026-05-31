@@ -15,7 +15,6 @@ class RAGEtin(nn.Module):
     super().__init__()
     
     self.enc = AutoModel.from_pretrained(name)
-    self.enc.final_layer_norm = nn.Identity()
     
   def forward(self, queries, positives, negatives):
     return self.enc(**queries).last_hidden_state[..., 0, :], self.enc(**positives).last_hidden_state[..., 0, :], self.enc(**negatives).last_hidden_state[..., 0, :]
@@ -26,5 +25,6 @@ token_adder = AddTokens()
 tokenizer = AutoTokenizer.from_pretrained("jhu-clsp/ettin-encoder-150m")
 tokenizer.add_tokens(list(token_adder.new_tokens.values()))
 
-model = RAGEtin().to(device)
+model = RAGEtin()
 model.enc.resize_token_embeddings(len(tokenizer))
+model = model.to(device)
