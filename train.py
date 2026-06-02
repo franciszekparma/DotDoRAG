@@ -19,7 +19,7 @@ class NFCorpusDataset(Dataset):
     qrels_path='data/nfcorpus/qrels/',
     queries_path='data/nfcorpus/queries.jsonl',
     corpus_path='data/nfcorpus/corpus.jsonl',
-    num_negatives=10,
+    num_negatives=8,
     split='train'
   ):
     super().__init__()
@@ -67,10 +67,12 @@ class NFCorpusDataset(Dataset):
       if sampled not in pos_ids:
         neg_ids.append(sampled)
 
+    pos_id = random.choice(list(pos_ids))
+
     return {
       'query_id': query_id,
       'query_text': self.queries[query_id],
-      'positive_texts': [self.corpus[cid] for cid in pos_ids],
+      'positive_texts': [self.corpus[pos_id]],
       'negative_texts': [self.corpus[cid] for cid in neg_ids]
     }
 
@@ -82,6 +84,11 @@ class MultiNCELoss(nn.Module):
     self.temp = temp
     
   def calc_loss(self, que_vec, pos_vecs, neg_vecs):
+    B = que_vec.size(0)
+    if pos_vecs.dim() == 2:
+      pos_vecs = pos_vecs.unsqueeze(1)
+    if neg_vecs.dim() == 2:
+      neg_vecs = neg_vecs.view(B, -1, neg_vecs.size(-1))
     que_vec = (F.normalize(que_vec, p=2, dim=1)).unsqueeze(1)
     pos_vecs = F.normalize(pos_vecs, p=2, dim=2)
     neg_vecs = F.normalize(neg_vecs, p=2, dim=2)
@@ -110,7 +117,7 @@ def collate_fn(batch):
       texts,
       padding=True,
       truncation=True,
-      max_length=512,
+      max_length=256,
       return_tensors='pt'
     )
 
@@ -125,24 +132,14 @@ def collate_fn(batch):
 
 def main():
   train_ds = NFCorpusDataset(split='train')
-  test_ds = NFCorpusDataset(split='test')
-  
-  train_dl = DataLoader(
-    train_ds,
-    batch_size=32,
-    shuffle=True,
-    drop_last=True,
-    collate_fn=collate_fn
-  )
-  test_dl = DataLoader(
-    test_ds,
-    batch_size=32,
-    shuffle=False,
-    drop_last=False,
-    collate_fn=collate_fn
-  )
-  
-  
+  val_ds = NFCorpusDataset(split='dev')
+  dl_kw = dict(batch_size=2, collate_fn=collate_fn)
+  train_dl = DataLoader(train_ds, shuffle=True, drop_last=True, **dl_kw)
+  val_dl = DataLoader(val_ds, shuffle=False, drop_last=False, **dl_kw)
+
+  print(f'{device} | LoRA fine-tune ettin-encoder-150m on NFCorpus (contrastive query↔doc)')
+  print(f'train {len(train_ds)} queries, val {len(val_ds)}, batch={dl_kw["batch_size"]}, {train_ds.num_negatives} negatives/query')
+
   peft_config = LoraConfig(
     r=16,
     lora_alpha=32,
@@ -168,43 +165,37 @@ def main():
     num_training_steps=total_steps
   )
   
-  for epoch in tqdm(range(epochs)):
+  best_val = float('inf')
+  for epoch in range(epochs):
     model.train()
-    
     train_losses = []
-    test_losses = []
-    
-    for n_batch, X in enumerate(train_dl):
+    for X in tqdm(train_dl, desc=f'Epoch {epoch + 1}/{epochs} train', unit='batch'):
       queries, positives, negatives = X['query'], X['positives'], X['negatives']
       queries, positives, negatives = {k: v.to(device) for k, v in queries.items()}, {k: v.to(device) for k, v in positives.items()}, {k: v.to(device) for k, v in negatives.items()}
-      print(queries['input_ids'].shape)
-      print(positives['input_ids'].shape)
-      print(negatives['input_ids'].shape)
       que_vecs, pos_vecs, neg_vecs = model(queries, positives, negatives)
-      
       loss = loss_fn.calc_loss(que_vecs, pos_vecs, neg_vecs)
       train_losses.append(loss.item())
-      
       optimizer.zero_grad()
       loss.backward()
       optimizer.step()
       scheduler.step()
-      
-      
+
+    val_losses = []
     model.eval()
     with torch.inference_mode():
-      for n_batch, X in enumerate(test_dl):
+      for X in tqdm(val_dl, desc=f'Epoch {epoch + 1}/{epochs} val', leave=False, unit='batch'):
         queries, positives, negatives = X['query'], X['positives'], X['negatives']
         queries, positives, negatives = {k: v.to(device) for k, v in queries.items()}, {k: v.to(device) for k, v in positives.items()}, {k: v.to(device) for k, v in negatives.items()}
-        
         que_vecs, pos_vecs, neg_vecs = model(queries, positives, negatives)
-        
-        loss = loss_fn.calc_loss(que_vecs, pos_vecs, neg_vecs)
-        test_losses.append(loss.item())
-      
-    
-    print(f"Epoch: {epoch}")
-    print(f"Train Loss: {sum(train_losses) / len(train_losses):.4f} | Test Loss: {sum(test_losses) / len(test_losses):.4f}")
+        val_losses.append(loss_fn.calc_loss(que_vecs, pos_vecs, neg_vecs).item())
+
+    train_loss, val_loss = sum(train_losses) / len(train_losses), sum(val_losses) / len(val_losses)
+    saved = ''
+    if val_loss < best_val:
+      best_val = val_loss
+      model.enc.save_pretrained('checkpoints/best')
+      saved = ' | saved checkpoints/best'
+    tqdm.write(f'Epoch {epoch + 1}/{epochs}: train={train_loss:.4f} val={val_loss:.4f} (best val={best_val:.4f}){saved}')
   
 
 if __name__ == '__main__':
