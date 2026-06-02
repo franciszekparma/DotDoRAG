@@ -34,13 +34,13 @@ class NFCorpusDataset(Dataset):
     self.num_negatives = num_negatives
 
     self.queries = {}
-    with open(queries_path, 'r') as f:
+    with open(queries_path, 'r', encoding='utf-8') as f:
       for line in f:
         item = json.loads(line)
         self.queries[item['_id']] = self.ta.add_query_tokens(item['text'])
 
     self.corpus = {}
-    with open(corpus_path, 'r') as f:
+    with open(corpus_path, 'r', encoding='utf-8') as f:
       for line in f:
         item = json.loads(line)
         doc = ""
