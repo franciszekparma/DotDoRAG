@@ -78,7 +78,7 @@ class NFCorpusDataset(Dataset):
 
 
 class MultiNCELoss(nn.Module):
-  def __init__(self, temp=0.3):
+  def __init__(self, temp=0.2):
     super().__init__()
     
     self.temp = temp
@@ -144,17 +144,17 @@ def main():
     r=16,
     lora_alpha=32,
     target_modules="all-linear",
-    lora_dropout=0.05,
+    lora_dropout=0.065,
     bias="none",
     task_type=None,
     init_lora_weights=True
   )
   model.enc = get_peft_model(model.enc, peft_config)
 
-  optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
+  optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
   loss_fn = MultiNCELoss()
   
-  epochs = 16
+  epochs = 200
   
   total_steps = len(train_dl) * epochs
   warmup_steps = int(0.1 * total_steps)
@@ -193,8 +193,9 @@ def main():
     saved = ''
     if val_loss < best_val:
       best_val = val_loss
-      model.enc.save_pretrained('checkpoints/best')
-      saved = ' | saved checkpoints/best'
+      checkpoint_path = f'checkpoints/epoch_{epoch+1}_train_{train_loss:.4f}_val_{val_loss:.4f}'
+      model.enc.save_pretrained(checkpoint_path)
+      saved = f' | saved {checkpoint_path}'
     tqdm.write(f'Epoch {epoch + 1}/{epochs}: train={train_loss:.4f} val={val_loss:.4f} (best val={best_val:.4f}){saved}')
   
 
