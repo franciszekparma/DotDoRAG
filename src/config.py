@@ -1,6 +1,6 @@
 import os
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 PDF_DIR = os.path.join(BASE_DIR, 'data', 'nfcorpus', 'pdf_docs')
 CORPUS_JSONL = os.path.join(BASE_DIR, 'data', 'nfcorpus', 'corpus.jsonl')

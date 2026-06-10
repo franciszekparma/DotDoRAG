@@ -402,14 +402,14 @@ data/nfcorpus/
 ### 11.3 Train the adapter
 
 ```bash
-python train.py
+python src/train.py
 # → checkpoints/epoch_K_train_X.XXXX_val_Y.YYYY/
 ```
 
 ### 11.4 Encode the corpus
 
 ```bash
-python encode_corpus.py <checkpoint_dir> corpus_encoded.pt
+python src/encode_corpus.py <checkpoint_dir> corpus_encoded.pt
 ```
 
 ### 11.5 Search
@@ -417,13 +417,13 @@ python encode_corpus.py <checkpoint_dir> corpus_encoded.pt
 Terminal (Cmd/Ctrl-click results to open PDFs):
 
 ```bash
-python search.py <checkpoint_dir> corpus_encoded.pt 0.75
+python src/search.py <checkpoint_dir> corpus_encoded.pt 0.75
 ```
 
 Web app:
 
 ```bash
-python app.py
+python app/app.py
 # → http://127.0.0.1:5000
 ```
 
@@ -435,15 +435,17 @@ A pre-trained adapter and pre-encoded index are committed to the repository, so 
 
 ```
 .
-├── model.py                    # encoder, tokenizer, special tokens, device pick
-├── utils.py                    # AddTokens — single source of truth for string format
-├── train.py                    # NFCorpus dataset, multi-positive InfoNCE, LoRA loop
-├── encode_corpus.py            # corpus → corpus_encoded.pt
-├── indexer.py                  # encode_doc, thread-safe append_to_index
-├── search.py                   # terminal REPL with OSC-8 clickable hyperlinks
-├── app.py                      # Flask app: /search, /add, /pdf, /stats
-├── config.py                   # paths, defaults, host/port
-├── templates/index.html        # single-page UI
+├── src/                        # all Python sources except the web app
+│   ├── config.py               # paths, defaults, host/port
+│   ├── model.py                # encoder, tokenizer, special tokens, device pick
+│   ├── utils.py                # AddTokens — single source of truth for string format
+│   ├── indexer.py              # encode_doc, thread-safe append_to_index
+│   ├── train.py                # NFCorpus dataset, multi-positive InfoNCE, LoRA loop
+│   ├── encode_corpus.py        # corpus → corpus_encoded.pt
+│   └── search.py               # terminal REPL with OSC-8 clickable hyperlinks
+├── app/                        # Flask web app
+│   ├── app.py                  # /search, /add, /pdf, /stats
+│   └── templates/index.html    # single-page UI
 ├── adapter_config.json         # LoRA config (peft)
 ├── adapter_model.safetensors   # trained LoRA weights (~6 MB)
 ├── corpus_encoded.pt           # {doc_vecs: (N, D) float32, pdf_paths: [str]}
