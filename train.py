@@ -85,10 +85,12 @@ class MultiNCELoss(nn.Module):
     
   def calc_loss(self, que_vec, pos_vecs, neg_vecs):
     B = que_vec.size(0)
+    
     if pos_vecs.dim() == 2:
       pos_vecs = pos_vecs.unsqueeze(1)
     if neg_vecs.dim() == 2:
       neg_vecs = neg_vecs.view(B, -1, neg_vecs.size(-1))
+      
     que_vec = (F.normalize(que_vec, p=2, dim=1)).unsqueeze(1)
     pos_vecs = F.normalize(pos_vecs, p=2, dim=2)
     neg_vecs = F.normalize(neg_vecs, p=2, dim=2)
@@ -137,9 +139,6 @@ def main():
   train_dl = DataLoader(train_ds, shuffle=True, drop_last=True, **dl_kw)
   val_dl = DataLoader(val_ds, shuffle=False, drop_last=False, **dl_kw)
 
-  print(f'{device} | LoRA fine-tune ettin-encoder-150m on NFCorpus (contrastive query↔doc)')
-  print(f'train {len(train_ds)} queries, val {len(val_ds)}, batch={dl_kw["batch_size"]}, {train_ds.num_negatives} negatives/query')
-
   peft_config = LoraConfig(
     r=16,
     lora_alpha=32,
@@ -172,30 +171,39 @@ def main():
     for X in tqdm(train_dl, desc=f'Epoch {epoch + 1}/{epochs} train', unit='batch'):
       queries, positives, negatives = X['query'], X['positives'], X['negatives']
       queries, positives, negatives = {k: v.to(device) for k, v in queries.items()}, {k: v.to(device) for k, v in positives.items()}, {k: v.to(device) for k, v in negatives.items()}
+      
       que_vecs, pos_vecs, neg_vecs = model(queries, positives, negatives)
+      
       loss = loss_fn.calc_loss(que_vecs, pos_vecs, neg_vecs)
+      
       train_losses.append(loss.item())
       optimizer.zero_grad()
+      
       loss.backward()
       optimizer.step()
       scheduler.step()
 
     val_losses = []
+    
     model.eval()
     with torch.inference_mode():
       for X in tqdm(val_dl, desc=f'Epoch {epoch + 1}/{epochs} val', leave=False, unit='batch'):
         queries, positives, negatives = X['query'], X['positives'], X['negatives']
         queries, positives, negatives = {k: v.to(device) for k, v in queries.items()}, {k: v.to(device) for k, v in positives.items()}, {k: v.to(device) for k, v in negatives.items()}
+        
         que_vecs, pos_vecs, neg_vecs = model(queries, positives, negatives)
+        
         val_losses.append(loss_fn.calc_loss(que_vecs, pos_vecs, neg_vecs).item())
 
     train_loss, val_loss = sum(train_losses) / len(train_losses), sum(val_losses) / len(val_losses)
+    
     saved = ''
     if val_loss < best_val:
       best_val = val_loss
       checkpoint_path = f'checkpoints/epoch_{epoch+1}_train_{train_loss:.4f}_val_{val_loss:.4f}'
       model.enc.save_pretrained(checkpoint_path)
-      saved = f' | saved {checkpoint_path}'
+      saved = f'!!!Saved the best model at: {checkpoint_path}!!!'
+      
     tqdm.write(f'Epoch {epoch + 1}/{epochs}: train={train_loss:.4f} val={val_loss:.4f} (best val={best_val:.4f}){saved}')
   
 
