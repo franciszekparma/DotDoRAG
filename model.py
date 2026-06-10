@@ -2,8 +2,11 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from transformers import AutoTokenizer, AutoModel
+from transformers.utils import logging
 
 from utils import AddTokens
+
+logging.set_verbosity_error()
 
 device = ('cuda' if torch.cuda.is_available()
           else 'mps' if torch.backends.mps.is_available()
