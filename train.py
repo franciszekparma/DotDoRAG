@@ -165,6 +165,7 @@ def main():
   )
   
   best_val = float('inf')
+  
   for epoch in range(epochs):
     model.train()
     train_losses = []
