@@ -4,8 +4,6 @@
 
 **A from-scratch PyTorch dense retriever — a 150 M-parameter ModernBERT encoder adapted to scientific literature with LoRA, served against a flat-tensor index over a corpus of PDFs.**
 
-<sub>Built by <b>Franciszek Parma</b> &amp; <b>Jan Juszczyk</b></sub>
-
 </div>
 
 ---
