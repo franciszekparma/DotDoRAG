@@ -1,0 +1,712 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>MedSearch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg-soft: #f6f9fb;
+    --ink: #0b1a2c;
+    --ink-2: #334155;
+    --muted: #64748b;
+    --rule: #e2e8f0;
+    --accent: #0f766e;        /* teal */
+    --accent-2: #0ea5e9;       /* sky */
+    --accent-deep: #064e4a;
+    --score-bg: #ecfeff;
+    --shadow-sm: 0 1px 2px rgba(15,23,42,0.04), 0 1px 1px rgba(15,23,42,0.03);
+    --shadow-md: 0 4px 14px rgba(15,23,42,0.06), 0 2px 4px rgba(15,23,42,0.04);
+    --shadow-lg: 0 18px 48px rgba(15,23,42,0.12);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    color: var(--ink);
+    background:
+      radial-gradient(900px 500px at 85% -100px, rgba(14,165,233,0.10), transparent 60%),
+      radial-gradient(700px 500px at -100px 0%, rgba(15,118,110,0.10), transparent 60%),
+      var(--bg);
+    background-attachment: fixed;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  main {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 72px 24px 80px;
+  }
+
+  /* Brand */
+  .brand {
+    text-align: center;
+    margin-bottom: 36px;
+  }
+  .brand .logo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px; height: 44px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+    box-shadow: 0 8px 22px rgba(14,165,233,0.28);
+    margin-bottom: 16px;
+  }
+  .brand .logo svg { width: 22px; height: 22px; color: #fff; }
+  .brand h1 {
+    font-size: 34px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 0;
+    background: linear-gradient(135deg, var(--ink) 0%, var(--accent-deep) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .brand p {
+    margin: 8px 0 0;
+    font-size: 15px;
+    color: var(--muted);
+  }
+
+  /* Search bar */
+  .search {
+    display: flex;
+    gap: 10px;
+    background: #fff;
+    padding: 8px;
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    box-shadow: var(--shadow-md);
+    transition: box-shadow .15s ease, border-color .15s ease;
+  }
+  .search:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 4px rgba(15,118,110,0.10), var(--shadow-md);
+  }
+  .search-icon {
+    display: flex; align-items: center; justify-content: center;
+    width: 38px; color: var(--muted);
+  }
+  .search-input {
+    flex: 1;
+    border: 0;
+    background: transparent;
+    color: var(--ink);
+    font-size: 15.5px;
+    padding: 10px 4px;
+    font-family: inherit;
+    outline: none;
+  }
+  .search-input::placeholder { color: #94a3b8; }
+  .search-btn {
+    border: 0;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%);
+    color: #fff;
+    font-weight: 600;
+    font-size: 14px;
+    padding: 0 22px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: inherit;
+    letter-spacing: 0.01em;
+    box-shadow: 0 4px 12px rgba(15,118,110,0.28);
+    transition: transform .08s ease, box-shadow .15s ease, filter .15s ease;
+  }
+  .search-btn:hover { filter: brightness(1.05); box-shadow: 0 6px 18px rgba(15,118,110,0.35); }
+  .search-btn:active { transform: translateY(1px); }
+  .search-btn:disabled { opacity: .55; cursor: not-allowed; }
+
+  /* Hyperparameters */
+  .params {
+    display: flex;
+    gap: 10px;
+    margin-top: 14px;
+  }
+  .param {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 14px;
+    background: #fff;
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    box-shadow: var(--shadow-sm);
+    transition: border-color .15s ease;
+  }
+  .param:focus-within { border-color: var(--accent); }
+  .param-label {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 12.5px;
+    color: var(--muted);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .param-label svg { width: 14px; height: 14px; color: var(--accent); }
+  .param input {
+    width: 70px;
+    border: 1px solid var(--rule);
+    background: var(--bg-soft);
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 600;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-family: inherit;
+    outline: none;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  .param input:focus { border-color: var(--accent); background: #fff; }
+
+  /* Results meta */
+  .meta-row {
+    display: none;
+    justify-content: space-between;
+    align-items: center;
+    color: var(--muted);
+    font-size: 13px;
+    margin: 36px 2px 12px;
+  }
+  .meta-row.show { display: flex; }
+  .meta-row .count {
+    color: var(--ink);
+    font-weight: 700;
+    font-size: 14px;
+  }
+  .meta-row .latency {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: #fff;
+    border: 1px solid var(--rule);
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    color: var(--ink-2);
+    box-shadow: var(--shadow-sm);
+  }
+  .meta-row .latency::before {
+    content: '';
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 0 3px rgba(34,197,94,0.18);
+  }
+
+  /* Results */
+  .results { display: grid; gap: 10px; }
+  .result {
+    background: #fff;
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    padding: 16px 18px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 16px;
+    align-items: center;
+    cursor: pointer;
+    box-shadow: var(--shadow-sm);
+    transition: transform .12s ease, box-shadow .15s ease, border-color .15s ease;
+    opacity: 0;
+    animation: fadeIn .3s ease forwards;
+    position: relative;
+    overflow: hidden;
+  }
+  .result::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: linear-gradient(180deg, var(--accent), var(--accent-2));
+    opacity: 0;
+    transition: opacity .15s ease;
+  }
+  .result:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+    border-color: #cbd5e1;
+  }
+  .result:hover::before { opacity: 1; }
+  .result h3 {
+    margin: 0 0 4px;
+    font-size: 15.5px;
+    font-weight: 600;
+    color: var(--ink);
+    line-height: 1.35;
+  }
+  .result p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.55;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .right-col {
+    display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+    min-width: 100px;
+  }
+  .score {
+    font-size: 12.5px;
+    color: var(--accent-deep);
+    background: var(--score-bg);
+    border: 1px solid #a7f3d0;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .open-btn {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    padding: 5px 12px;
+    font-size: 12.5px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: inherit;
+    font-weight: 600;
+    transition: background .12s ease, color .12s ease;
+  }
+  .open-btn:hover { background: var(--accent); color: #fff; }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .skeleton {
+    background: linear-gradient(90deg, #f1f5f9 0%, #f8fafc 50%, #f1f5f9 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.2s linear infinite;
+    border-radius: 12px;
+    height: 72px;
+  }
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  .empty {
+    text-align: center;
+    color: var(--muted);
+    padding: 36px 12px;
+    font-size: 14px;
+    background: #fff;
+    border: 1px dashed var(--rule);
+    border-radius: 12px;
+  }
+
+  /* PDF modal */
+  .modal {
+    position: fixed; inset: 0;
+    display: none;
+    background: rgba(15, 23, 42, 0.55);
+    backdrop-filter: blur(4px);
+    z-index: 20;
+  }
+  .modal.open { display: flex; align-items: stretch; justify-content: stretch; }
+  .modal-inner {
+    margin: 24px;
+    width: 100%;
+    background: #fff;
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    box-shadow: var(--shadow-lg);
+  }
+  .modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--rule);
+    gap: 12px;
+    background: var(--bg-soft);
+  }
+  .modal-title {
+    font-weight: 600;
+    font-size: 14.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--ink);
+  }
+  .modal-actions { display: flex; gap: 8px; }
+  .icon-btn {
+    background: #fff;
+    border: 1px solid var(--rule);
+    color: var(--ink-2);
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12.5px;
+    font-family: inherit;
+    text-decoration: none;
+    display: inline-block;
+    transition: background .12s ease, border-color .12s ease;
+  }
+  .icon-btn:hover { background: #f3f4f6; border-color: #cbd5e1; }
+  .icon-btn.primary { color: var(--accent); border-color: var(--accent); }
+  .icon-btn.primary:hover { background: var(--accent); color: #fff; }
+  .modal-body { flex: 1; background: #1e293b; }
+  .modal-body iframe { width: 100%; height: 100%; border: 0; background: #fff; }
+
+  /* Add document panel */
+  .add-doc {
+    margin-top: 48px;
+    background: #fff;
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+  }
+  .add-doc summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 14px 18px;
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink);
+    user-select: none;
+  }
+  .add-doc summary::-webkit-details-marker { display: none; }
+  .add-doc summary .chev { color: var(--muted); transition: transform .15s ease; }
+  .add-doc[open] summary .chev { transform: rotate(180deg); }
+  .add-doc summary .lhs { display: flex; align-items: center; gap: 9px; }
+  .add-doc summary .lhs svg { width: 16px; height: 16px; color: var(--accent); }
+  .add-doc .body { padding: 0 18px 18px; display: grid; gap: 12px; }
+  .add-doc label {
+    display: grid; gap: 6px;
+    font-size: 12.5px; color: var(--muted); font-weight: 500;
+  }
+  .add-doc input[type="text"],
+  .add-doc textarea {
+    border: 1px solid var(--rule);
+    background: var(--bg-soft);
+    color: var(--ink);
+    font-size: 14px;
+    padding: 9px 12px;
+    border-radius: 6px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  .add-doc input[type="text"]:focus,
+  .add-doc textarea:focus { border-color: var(--accent); background: #fff; }
+  .add-doc textarea { resize: vertical; min-height: 80px; }
+  .add-doc .file-row {
+    display: flex; gap: 10px; align-items: center;
+  }
+  .add-doc input[type="file"] {
+    flex: 1;
+    font-size: 13px;
+    color: var(--ink-2);
+    font-family: inherit;
+  }
+  .add-doc input[type="file"]::file-selector-button {
+    background: #fff;
+    border: 1px solid var(--rule);
+    color: var(--ink);
+    padding: 7px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    margin-right: 10px;
+  }
+  .add-doc input[type="file"]::file-selector-button:hover {
+    background: #f3f4f6;
+  }
+  .add-doc .actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .add-doc .status {
+    font-size: 13px;
+    color: var(--muted);
+    flex: 1;
+  }
+  .add-doc .status.ok { color: var(--accent); font-weight: 500; }
+  .add-doc .status.err { color: #b91c1c; }
+  .add-doc .add-btn {
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+    font-size: 13.5px;
+    padding: 9px 18px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background .12s ease;
+  }
+  .add-doc .add-btn:hover { background: #0c5f59; }
+  .add-doc .add-btn:disabled { opacity: .55; cursor: not-allowed; }
+</style>
+</head>
+<body>
+
+<main>
+  <div class="brand">
+    <h1>MedSearch</h1>
+    <p>Semantic search over the clinical literature</p>
+  </div>
+
+  <div class="search">
+    <div class="search-icon">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="7" />
+        <line x1="16.5" y1="16.5" x2="21" y2="21" />
+      </svg>
+    </div>
+    <input
+      id="q"
+      class="search-input"
+      placeholder="Search the clinical literature…"
+      autocomplete="off"
+      autofocus
+    />
+    <button id="go" class="search-btn">Search</button>
+  </div>
+
+  <div class="params">
+    <div class="param">
+      <span class="param-label">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="4" y1="6" x2="20" y2="6" />
+          <line x1="4" y1="12" x2="14" y2="12" />
+          <line x1="4" y1="18" x2="10" y2="18" />
+        </svg>
+        Top-K
+      </span>
+      <input id="topk" type="number" min="1" max="50" value="5" />
+    </div>
+    <div class="param">
+      <span class="param-label">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 12 H7 L10 6 L14 18 L17 12 H21" />
+        </svg>
+        Threshold
+      </span>
+      <input id="thr" type="number" min="0" max="1" step="0.05" value="0.5" />
+    </div>
+  </div>
+
+  <div class="meta-row" id="meta">
+    <div><span class="count" id="result-count">0</span> results</div>
+    <div class="latency"><span id="latency">–</span> ms</div>
+  </div>
+
+  <section class="results" id="results"></section>
+
+  <details class="add-doc" id="add-doc">
+    <summary>
+      <span class="lhs">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+        Add a document to the index
+      </span>
+      <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="6 9 12 15 18 9" />
+      </svg>
+    </summary>
+    <div class="body">
+      <label>
+        Title
+        <input id="add-title" type="text" placeholder="e.g. Effects of resveratrol on metabolic syndrome" />
+      </label>
+      <label>
+        Abstract / text used for matching
+        <textarea id="add-text" placeholder="Paste the abstract or a representative excerpt — this is what the encoder will index."></textarea>
+      </label>
+      <label>
+        PDF file
+        <div class="file-row">
+          <input id="add-pdf" type="file" accept="application/pdf" />
+        </div>
+      </label>
+      <div class="actions">
+        <div class="status" id="add-status">The encoder will index the title + text. The PDF is saved so it can be opened from results.</div>
+        <button id="add-btn" class="add-btn">Add to index</button>
+      </div>
+    </div>
+  </details>
+</main>
+
+<div class="modal" id="modal" aria-hidden="true">
+  <div class="modal-inner">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-title">Document</div>
+      <div class="modal-actions">
+        <a id="open-tab" class="icon-btn primary" target="_blank" rel="noopener">Open in new tab ↗</a>
+        <button class="icon-btn" id="close-modal">Close</button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <iframe id="pdf-frame" title="PDF viewer"></iframe>
+    </div>
+  </div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const qInput = $('q');
+  const goBtn = $('go');
+  const resultsEl = $('results');
+  const metaEl = $('meta');
+  const countEl = $('result-count');
+  const latencyEl = $('latency');
+  const modal = $('modal');
+
+  function showSkeletons(n = 4) {
+    resultsEl.innerHTML = Array.from({length: n}, () => '<div class="skeleton"></div>').join('');
+  }
+
+  function escapeHtml(s) {
+    return (s ?? '').replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+  }
+
+  function renderResults(data) {
+    const { results } = data;
+    countEl.textContent = results.length;
+    metaEl.classList.add('show');
+
+    if (!results.length) {
+      resultsEl.innerHTML = `<div class="empty">No documents matched. Try lowering the threshold or rephrasing.</div>`;
+      return;
+    }
+
+    resultsEl.innerHTML = results.map((r, i) => `
+      <article class="result" style="animation-delay:${i * 40}ms"
+               data-url="${escapeHtml(r.pdf_url)}"
+               data-title="${escapeHtml(r.title)}">
+        <div>
+          <h3>${escapeHtml(r.title)}</h3>
+          <p>${escapeHtml(r.snippet) || ''}</p>
+        </div>
+        <div class="right-col">
+          <span class="score">${r.score.toFixed(3)}</span>
+          <button class="open-btn">View PDF</button>
+        </div>
+      </article>
+    `).join('');
+
+    resultsEl.querySelectorAll('.result').forEach(card => {
+      card.addEventListener('click', () => {
+        openPdf(card.dataset.url, card.dataset.title);
+      });
+    });
+  }
+
+  async function runSearch() {
+    const query = qInput.value.trim();
+    if (!query) { qInput.focus(); return; }
+    const top_k = parseInt($('topk').value || '5', 10);
+    const threshold = parseFloat($('thr').value || '0.5');
+
+    goBtn.disabled = true;
+    showSkeletons();
+    metaEl.classList.remove('show');
+
+    const t0 = performance.now();
+    try {
+      const res = await fetch('/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, top_k, threshold }),
+      });
+      const data = await res.json();
+      latencyEl.textContent = Math.round(performance.now() - t0);
+      if (!res.ok) {
+        resultsEl.innerHTML = `<div class="empty">Error: ${escapeHtml(data.error || 'unknown')}</div>`;
+        return;
+      }
+      renderResults(data);
+    } catch (e) {
+      resultsEl.innerHTML = `<div class="empty">Network error: ${escapeHtml(String(e))}</div>`;
+    } finally {
+      goBtn.disabled = false;
+    }
+  }
+
+  function openPdf(url, title) {
+    $('modal-title').textContent = title;
+    $('open-tab').href = url;
+    $('pdf-frame').src = url;
+    modal.classList.add('open');
+  }
+  function closePdf() {
+    modal.classList.remove('open');
+    $('pdf-frame').src = 'about:blank';
+  }
+
+  goBtn.addEventListener('click', runSearch);
+  qInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') runSearch(); });
+  $('close-modal').addEventListener('click', closePdf);
+  modal.addEventListener('click', (e) => { if (e.target === modal) closePdf(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePdf(); });
+
+  // Add-document handler
+  const addBtn = $('add-btn');
+  const addStatus = $('add-status');
+  const addTitle = $('add-title');
+  const addText = $('add-text');
+  const addPdf = $('add-pdf');
+
+  addBtn.addEventListener('click', async () => {
+    const file = addPdf.files && addPdf.files[0];
+    const title = addTitle.value.trim();
+    const text = addText.value.trim();
+
+    if (!file) {
+      addStatus.textContent = 'Please choose a PDF file.';
+      addStatus.className = 'status err';
+      return;
+    }
+    if (!title && !text) {
+      addStatus.textContent = 'Provide a title or some text so the encoder has something to index.';
+      addStatus.className = 'status err';
+      return;
+    }
+
+    addBtn.disabled = true;
+    addStatus.textContent = 'Encoding and indexing…';
+    addStatus.className = 'status';
+
+    const form = new FormData();
+    form.append('pdf', file);
+    form.append('title', title);
+    form.append('text', text);
+
+    try {
+      const res = await fetch('/add', { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) {
+        addStatus.textContent = 'Error: ' + (data.error || 'upload failed');
+        addStatus.className = 'status err';
+        return;
+      }
+      addStatus.textContent = `Added "${data.title}" — index now has ${data.total_docs} documents.`;
+      addStatus.className = 'status ok';
+      addTitle.value = ''; addText.value = ''; addPdf.value = '';
+    } catch (e) {
+      addStatus.textContent = 'Network error: ' + String(e);
+      addStatus.className = 'status err';
+    } finally {
+      addBtn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
