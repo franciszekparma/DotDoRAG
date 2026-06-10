@@ -1,257 +1,290 @@
 # SimpleRAG
 
-A compact, end-to-end **dense retrieval** system for scientific PDFs. SimpleRAG fine-tunes a transformer encoder with **LoRA** on the [NFCorpus](https://www.cl.uni-heidelberg.de/statnlpgroup/nfcorpus/) biomedical retrieval benchmark, encodes the corpus into a single dense index, and serves a Flask web app that lets you search the index, open the matching PDFs, and add new papers on the fly.
+Semantic search over a personal library of scientific PDFs. You type a question, it returns the papers that actually answer it — not the ones that happen to share keywords.
 
-The project is intentionally small. The point is not to ship another retrieval framework — it is to show, in a few hundred lines of code, how every moving part of a modern dense retriever fits together: the encoder, the contrastive objective, the parameter-efficient fine-tuning, the index, and the serving layer.
-
----
-
-## Table of contents
-
-- [How it works](#how-it-works)
-  - [1. The encoder: Ettin-150M](#1-the-encoder-ettin-150m)
-  - [2. Role-marker tokens](#2-role-marker-tokens)
-  - [3. Fine-tuning with LoRA](#3-fine-tuning-with-lora)
-  - [4. The training objective: multi-positive InfoNCE](#4-the-training-objective-multi-positive-infonce)
-  - [5. Building the index](#5-building-the-index)
-  - [6. Retrieval at query time](#6-retrieval-at-query-time)
-- [The application](#the-application)
-- [Project layout](#project-layout)
-- [Setup](#setup)
-- [Usage](#usage)
-- [Configuration](#configuration)
+The whole system is three artifacts: a **6 MB LoRA adapter** that teaches a small encoder to read biomedical text the way a researcher would, a **flat tensor of document vectors** that takes a single matmul to search, and a **Flask app** that ties them together and lets you drop new PDFs into the index without a restart.
 
 ---
 
-## How it works
-
-The system follows the standard **bi-encoder** retrieval recipe: queries and documents are mapped independently into the same unit-norm vector space, and relevance is measured by cosine similarity. Below is what each stage does and why it was chosen.
-
-### 1. The encoder: Ettin-150M
-
-The backbone is [`jhu-clsp/ettin-encoder-150m`](https://huggingface.co/jhu-clsp/ettin-encoder-150m), a 150M-parameter encoder from Johns Hopkins' CLSP group built on the **ModernBERT** architecture. It was picked for three reasons:
-
-- **Right size.** Large enough to learn useful semantics, small enough to fine-tune and serve on a single consumer GPU (or Apple Silicon via MPS).
-- **Long context out of the box.** ModernBERT-style models handle long sequences efficiently thanks to local/global alternating attention and RoPE, which matters for full-abstract document encoding.
-- **Strong retrieval prior.** Ettin was pre-trained with retrieval in mind, so the off-the-shelf representations are already reasonable; fine-tuning mainly has to specialize them to the biomedical domain.
-
-The model wrapper (`model.py`) exposes a single encoder `self.enc` and a `forward` that returns the **CLS pooled** representation (`last_hidden_state[..., 0, :]`) for queries, positives, and negatives in one call. CLS pooling is used (rather than mean pooling) because it is the simplest sentence-level summary the model was pre-trained to produce, and it lines up cleanly with how the contrastive loss is computed downstream.
-
-Device selection is automatic: CUDA → MPS → CPU.
-
-### 2. Role-marker tokens
-
-A subtle but important detail. Both queries and documents are wrapped in dedicated special tokens before tokenization (`utils.py`):
+## What a query looks like
 
 ```
-<QRY> ... </QRY>     # queries
-<TLE> ... </TLE>     # document titles
-<TXT> ... </TXT>     # document body text
+> fasting and blood glucose regulation
+
+  0.842   Effects of intermittent caloric restriction on glycemic response
+  0.811   Time-restricted feeding and insulin sensitivity in adults
+  0.793   Postprandial glucose dynamics under prolonged fasting
+  0.778   Metabolic adaptations during alternate-day fasting
+  ...
 ```
 
-The tokens are added to the tokenizer's vocabulary and the embedding matrix is resized accordingly (`model.py`). This gives the model an explicit, learnable signal of **which side of the asymmetric query-document relationship a piece of text belongs to**, and of the **structural role** (title vs. body) inside a document. The same trick is used by E5, BGE, and other strong retrievers — the only difference is that here the markers are learned rather than fixed natural-language prefixes ("query:" / "passage:").
+The word *fasting* doesn't appear in the first three titles. That's the whole point — lexical search would have missed them. A bi-encoder fine-tuned on a domain corpus learns that *fasting*, *caloric restriction*, *time-restricted feeding*, and *prolonged fasting* live in the same neighbourhood of the vector space.
 
-The token-wrapping logic is centralized in `AddTokens` so that training, corpus encoding, and serving are guaranteed to use identical formatting. Any drift here silently destroys retrieval quality.
+---
 
-### 3. Fine-tuning with LoRA
+## The shape of the system
 
-The base encoder is frozen and adapted with **LoRA** (Low-Rank Adaptation) via the `peft` library (`train.py`). LoRA was chosen because:
+```
+                                  ┌─────────────────────┐
+                                  │  base encoder       │
+                                  │  ettin-150m (≈600MB)│
+                                  └──────────┬──────────┘
+                                             │
+   train.py ─────────── LoRA fine-tune ──────┤
+   (NFCorpus + qrels)                        │
+                                             ▼
+                                  ┌─────────────────────┐
+                                  │  adapter (≈6 MB)    │ ◄── the only thing you ship from training
+                                  └──────────┬──────────┘
+                                             │
+   encode_corpus.py ──────── encode docs ────┤
+   (corpus.jsonl + PDFs)                     │
+                                             ▼
+                                  ┌─────────────────────┐
+                                  │  corpus_encoded.pt  │   doc_vecs : (N, D)
+                                  │                     │   pdf_paths: [str]·N
+                                  └──────────┬──────────┘
+                                             │
+   app.py ───────────────── load + serve ────┤
+                                             ▼
+                              query  ─►  q · doc_vecsᵀ  ─►  top-k PDFs
+```
 
-- It reduces the number of trainable parameters by ~100x, which makes the optimizer state fit comfortably in memory and the training run cheap.
-- The base model stays intact on disk; only a small adapter (a few MB) needs to be versioned, shipped, or swapped.
-- Empirically, low-rank adapters perform on par with full fine-tuning for retrieval on small-to-mid corpora like NFCorpus.
+Each box on the right is a file on disk. The left side is the code that produces it.
 
-Configuration:
+---
+
+## Stage 1 — Training the retriever
+
+The retriever is a **bi-encoder**: queries and documents go through the same model independently, producing two vectors that are scored by cosine similarity. Independence is the whole reason this is fast at serve time — documents get encoded *once*, into a frozen matrix, and a query is one vector against that matrix.
+
+### Backbone
+
+[`jhu-clsp/ettin-encoder-150m`](https://huggingface.co/jhu-clsp/ettin-encoder-150m) — a 150M-parameter ModernBERT-style encoder. Big enough to learn useful semantics, small enough to fine-tune on a laptop GPU, and built with retrieval in mind (alternating local/global attention, RoPE, long context).
+
+Sentence vectors are the **CLS token's** final hidden state. One vector per input, no pooling decisions to second-guess at serve time.
+
+### Role-marker tokens
+
+Before tokenization, every string is wrapped in one of three learned special tokens:
+
+```
+<QRY> what role does TGF-beta play in fibrosis </QRY>
+<TLE> TGF-β signalling in pulmonary fibrosis </TLE>  <TXT> ... </TXT>
+```
+
+These tokens are added to the vocabulary and the embedding matrix is resized. They give the model an explicit, learned signal of which side of the relationship a piece of text belongs to (query vs. document) and which structural slot it fills (title vs. body). E5 and BGE use natural-language prefixes for the same purpose; learned tokens are a cleaner version of the same idea.
+
+All wrapping flows through a single `AddTokens` helper used by training, indexing, and serving alike. If train and serve format the same string differently, the geometry breaks silently — so the helper has exactly one source of truth.
+
+### Why LoRA, not full fine-tuning
+
+Full fine-tuning would work. It would also produce a 600 MB artifact, require an optimizer state that doesn't fit on most consumer GPUs, and overwrite a perfectly good base model.
+
+LoRA adds a small low-rank residual `ΔW = BA` to every linear layer and trains only those matrices. Three consequences:
+
+1. **~1% of the parameters move.** Optimizer state shrinks accordingly.
+2. **The artifact is the diff.** The base encoder stays on Hugging Face; you ship a 6 MB `safetensors` file.
+3. **Adapter hot-swapping.** You can train one adapter per domain (biomed, legal, code) and load the right one at serve time without touching the base weights.
+
+Concrete config:
 
 ```python
-LoraConfig(
-    r=16, lora_alpha=32, lora_dropout=0.065,
-    target_modules="all-linear",   # adapts every linear layer in the encoder
-    bias="none", task_type=None,
-)
+LoraConfig(r=16, lora_alpha=32, lora_dropout=0.065,
+           target_modules="all-linear", bias="none")
 ```
 
-`target_modules="all-linear"` adapts every linear projection in the model — attention `Wqkv`/`Wo` plus the MLP `Wi`/`Wo` (see `adapter_config.json`). `r=16` with `alpha=32` gives a scaling factor of 2, a standard middle-ground for retrieval tuning.
+`all-linear` adapts every projection — attention `Wqkv`/`Wo` *and* MLP `Wi`/`Wo`. Adapting only attention is a common shortcut that costs noticeable quality on retrieval; the MLPs carry a lot of the semantic shift you actually want.
 
-Optimization details:
+### The loss: multi-positive InfoNCE
 
-- **AdamW**, learning rate `1e-3` — high but appropriate since only adapter weights are trained.
-- **Linear warmup + linear decay** for 10% of total steps (`get_linear_schedule_with_warmup`), which stabilizes the first few hundred steps when the adapter weights are initialized from zero.
-- Best checkpoint by lowest dev loss is saved with `model.enc.save_pretrained(...)`.
-
-### 4. The training objective: multi-positive InfoNCE
-
-The loss (`MultiNCELoss` in `train.py`) is a small generalization of standard InfoNCE that handles the fact that NFCorpus queries often have multiple relevant documents.
-
-For each query vector `q` with positive set `P` and negative set `N`, all unit-normalized:
+NFCorpus queries can have ten or more relevant documents. Standard InfoNCE assumes one. The fix is to put *all* known positives into the numerator:
 
 ```
-L = -log( Σ exp(q·p / τ)   /   ( Σ exp(q·p / τ) + Σ exp(q·n / τ) ) )
-        p∈P                       p∈P                n∈N
+            Σ exp(q·p / τ)
+            p∈P
+L = -log ─────────────────────────
+         Σ exp(q·p / τ)  +  Σ exp(q·n / τ)
+         p∈P                 n∈N
 ```
 
-Why this loss, and why the details matter:
+Three details that matter:
 
-- **Multi-positive sum** in the numerator means the model gets credit for pulling *any* relevant document closer, not just one — important on NFCorpus where queries can have 10+ relevant entries.
-- **L2 normalization** before the dot product turns inner products into cosine similarity, which keeps gradients well-scaled and matches the search-time metric exactly.
-- **Temperature `τ = 0.2`** sharpens the softmax. Lower temperatures push the model to make harder discriminations between positives and negatives; 0.2 is a common sweet spot for retrieval contrastive losses.
-- **`1e-8` epsilon** inside the `log` is purely numerical hygiene to avoid `log(0)` when scores collapse early in training.
+- **L2-normalize before the dot product.** Inner products become cosine similarities, gradients stay well-scaled, and the training metric matches the serving metric exactly.
+- **Temperature `τ = 0.2`.** Sharpens the softmax; the model is pushed to make hard discriminations between positives and negatives.
+- **8 random negatives per query.** Random is the weak option — hard-mined negatives would be better — but it requires zero extra infrastructure, which keeps the project a weekend project.
 
-Negatives are sampled randomly from the corpus per query (`num_negatives=8`). Random negatives are weaker than hard negatives but require no extra mining infrastructure, which keeps the project simple; harder negatives would be the obvious next improvement.
+### Training loop in seven lines
 
-### 5. Building the index
+```python
+for q, P, N in dataloader:                 # q: query text, P: positives, N: negatives
+    q_vec, p_vecs, n_vecs = model(q, P, N) # all CLS-pooled, all (..., D)
+    loss = multi_positive_infonce(q_vec, p_vecs, n_vecs, tau=0.2)
+    loss.backward()
+    optimizer.step(); scheduler.step()
+    optimizer.zero_grad()
+    if dev_loss < best: model.enc.save_pretrained(ckpt_dir)
+```
 
-After training, `encode_corpus.py` loads the base model, layers the trained LoRA adapter on top with `PeftModel.from_pretrained`, and encodes every document in the corpus that has a matching PDF on disk:
-
-1. For each `corpus.jsonl` entry, build `<TLE>title</TLE> <TXT>text</TXT>`.
-2. Tokenize (max length 256) and run through the encoder.
-3. Take the CLS vector and L2-normalize it.
-4. Stack everything into a `(N, D)` float tensor and save alongside the list of PDF paths to `corpus_encoded.pt`:
-
-   ```python
-   torch.save({'doc_vecs': doc_vecs, 'pdf_paths': pdf_paths}, out_path)
-   ```
-
-This is deliberately a flat dense tensor rather than FAISS / HNSW / a vector DB. At NFCorpus scale (~3.6k docs) a single matmul is already faster than any ANN library's overhead, and it keeps the dependency list short. Swapping in FAISS later is a few lines of code.
-
-### 6. Retrieval at query time
-
-Both the CLI (`search.py`) and the web app (`app.py`) follow the same three steps:
-
-1. Wrap the query in `<QRY>…</QRY>`, tokenize, encode with the LoRA-adapted model, L2-normalize → `q ∈ ℝ^D`.
-2. Compute `sims = q @ doc_vecs.T` — one dense matrix-vector product, no approximate search.
-3. Sort descending; keep results whose cosine similarity is above a configurable threshold (default `0.75`) and trim to `top_k` (default `5`).
-
-Because both sides are unit-normalized, the dot product *is* the cosine similarity, and the threshold has a stable, interpretable meaning across queries.
+AdamW at `1e-3` (high, but only adapter weights move), linear warmup over 10% of steps then linear decay. The artifact at the end is a directory containing `adapter_config.json` and `adapter_model.safetensors`.
 
 ---
 
-## The application
+## Stage 2 — Building the index
 
-`app.py` is a small Flask app that wraps the retriever in a browser UI. It does three things:
+`encode_corpus.py` loads the base encoder, layers the trained adapter on top with `PeftModel.from_pretrained`, and encodes every document in the corpus that has a matching PDF on disk:
 
-### `GET /` — search UI
+```
+for doc in corpus.jsonl:
+    if PDF exists:
+        text = <TLE>title</TLE> <TXT>body</TXT>
+        v    = L2norm(encoder(text))             # (D,)
+        doc_vecs.append(v); pdf_paths.append(path)
 
-Renders `templates/index.html`, a single-page interface with a query box, threshold/top-k controls, and a results list. Clicking a result opens the corresponding PDF in a new tab.
-
-### `POST /search` — JSON search API
-
-Accepts:
-
-```json
-{ "query": "...", "top_k": 5, "threshold": 0.75 }
+save({'doc_vecs': stack(doc_vecs),                # (N, D) float32
+      'pdf_paths': pdf_paths},                    # list[str], aligned by row
+     'corpus_encoded.pt')
 ```
 
-Encodes the query, scores it against the in-memory `doc_vecs`, and returns:
+### Why a flat tensor, not FAISS
 
-```json
-{
-  "query": "...",
-  "results": [
-    { "title": "...", "snippet": "...", "score": 0.812,
-      "filename": "...pdf", "pdf_url": "/pdf/...pdf" }
-  ]
-}
-```
+NFCorpus has ~3.6k documents. A `(3600, 768)` float32 matrix is 11 MB. The matmul against a single query vector runs in microseconds on CPU and is bandwidth-bound, not compute-bound. Any ANN library would spend more time on its own overhead than the brute-force scan takes.
 
-Snippets and titles come from a `corpus.jsonl` metadata index built once at startup (`load_metadata`), keyed by both title and filename stem so lookups survive minor filename differences.
-
-### `POST /add` — index a new PDF live
-
-Multipart form with a `pdf` file plus `title` and/or `text`. The handler:
-
-1. Saves the PDF under `data/nfcorpus/pdf_docs/`, deduplicating the filename if necessary (`secure_filename` + numeric suffix).
-2. Encodes `<TLE>title</TLE> <TXT>text</TXT>` with the same `encode_doc` helper used at indexing time (`indexer.py`).
-3. Appends the new vector to `doc_vecs` and the new path to `pdf_paths`, then atomically persists the updated `corpus_encoded.pt` under a lock.
-4. Updates the in-memory metadata so the document is searchable immediately, without restarting the server.
-
-A `threading.Lock` in `indexer.append_to_index` serializes concurrent writes so that two simultaneous uploads cannot corrupt the index file.
-
-### `GET /pdf/<filename>` — safe PDF serving
-
-PDFs are served from disk with an explicit path-traversal guard: the resolved real path must live under the configured `PDF_DIR`, otherwise the request is 404'd. This is the only piece of the app that touches user-supplied filenames, so it gets explicit hardening.
-
-### `GET /stats`
-
-Returns `{"total_docs": N}`. Useful for health checks and for the UI to show how many documents are indexed.
+The same code scales cleanly to ~100k documents. Beyond that, swapping `q @ doc_vecs.T` for a FAISS `IndexFlatIP` or `IndexHNSWFlat` is a few lines — but the *interface* (`encode_query` → similarity → top-k) doesn't change.
 
 ---
 
-## Project layout
+## Stage 3 — Serving
 
+`app.py` is a Flask app that holds `doc_vecs` and `pdf_paths` in memory and exposes five endpoints.
+
+| Route | Method | Purpose |
+|---|---|---|
+| `/` | GET | Single-page search UI |
+| `/search` | POST | Encode query, score against `doc_vecs`, return top-k above threshold as JSON |
+| `/add` | POST | Multipart upload — saves the PDF, encodes title+text, appends to the live index, persists |
+| `/pdf/<filename>` | GET | Serves a PDF, with a real-path check that pins it inside `PDF_DIR` |
+| `/stats` | GET | `{"total_docs": N}` |
+
+### Query path
+
+```python
+q     = L2norm(encoder("<QRY> " + query + " </QRY>"))   # (1, D)
+sims  = (q @ doc_vecs.T).squeeze(0)                      # (N,)
+order = sims.argsort(descending=True)
+
+results = []
+for i in order:
+    if sims[i] < threshold: break
+    results.append(pdf_paths[i])
+    if len(results) >= top_k: break
 ```
-simplerag/
-├── model.py            # Ettin encoder + tokenizer + special tokens + device selection
-├── utils.py            # AddTokens: the <QRY>/<TLE>/<TXT> wrapping logic
-├── train.py            # NFCorpus dataset, multi-positive InfoNCE, LoRA training loop
-├── encode_corpus.py    # One-shot corpus → corpus_encoded.pt encoder
-├── indexer.py          # Shared encode_doc + thread-safe append_to_index
-├── search.py           # Terminal search REPL with OSC-8 clickable PDF links
-├── app.py              # Flask web app (search + live add + PDF serving)
-├── config.py           # Paths, defaults, host/port
-├── templates/
-│   └── index.html      # Single-page search UI
-├── adapter_config.json # LoRA adapter config (peft)
-├── adapter_model.safetensors  # Trained LoRA weights
-├── corpus_encoded.pt   # Dense index: {doc_vecs: (N,D), pdf_paths: [str]}
-└── data/nfcorpus/      # Corpus, queries, qrels, PDFs
+
+Because both sides are unit-normalized, the dot product *is* the cosine similarity. The threshold (default `0.75`) has a stable, interpretable meaning across queries — it isn't a per-query calibration knob.
+
+### Live index updates
+
+`/add` takes a PDF + title + abstract, encodes the text the same way training did, and appends one row to the in-memory `doc_vecs` and one entry to `pdf_paths`. The updated tensor is then rewritten to `corpus_encoded.pt` under a `threading.Lock` so concurrent uploads can't race on the file. New documents are searchable on the very next query — no restart, no re-encode of the corpus.
+
+### Path-traversal guard
+
+The PDF serving route accepts a filename from the URL, which means it has to be hardened against `../../etc/passwd`-style inputs:
+
+```python
+safe_dir = os.path.realpath(config.PDF_DIR)
+target   = os.path.realpath(os.path.join(safe_dir, filename))
+if not target.startswith(safe_dir + os.sep):
+    abort(404)
 ```
+
+Real-path resolution defeats symlink games; the prefix check defeats traversal. Anything that lands outside `PDF_DIR` is a 404, not a leak.
 
 ---
 
-## Setup
-
-Requirements: Python 3.10+, PyTorch with CUDA / MPS / CPU support.
+## Run it
 
 ```bash
+git clone https://github.com/franciszekparma/simplerag.git
+cd simplerag
 pip install torch transformers peft flask pandas tqdm
 ```
 
-The dataset and PDFs are expected under `data/nfcorpus/` with the standard NFCorpus layout (`corpus.jsonl`, `queries.jsonl`, `qrels/{train,dev,test}.tsv`, `pdf_docs/*.pdf`).
+Drop the standard NFCorpus layout under `data/nfcorpus/`: `corpus.jsonl`, `queries.jsonl`, `qrels/{train,dev,test}.tsv`, and `pdf_docs/*.pdf`.
+
+```bash
+python train.py                                         # train LoRA adapter
+python encode_corpus.py <ckpt_dir> corpus_encoded.pt    # build the index
+python search.py <ckpt_dir> corpus_encoded.pt 0.75      # terminal search
+python app.py                                           # web app → http://127.0.0.1:5000
+```
+
+A pre-trained adapter and pre-encoded index are committed to the repo, so you can skip the first two steps and go straight to `app.py`.
 
 ---
 
-## Usage
+## Hyperparameters
 
-**Train the LoRA adapter** (writes checkpoints under `checkpoints/`):
+All in [`config.py`](config.py) and [`train.py`](train.py).
 
-```bash
-python train.py
+**Encoder & retrieval**
+| | |
+|---|---|
+| Base model | `jhu-clsp/ettin-encoder-150m` |
+| Embedding dim | 768 |
+| Pooling | CLS |
+| Max sequence length | 256 (query and doc) |
+| Similarity | Cosine (= dot product on unit vectors) |
+| Default top-k / threshold | 5 / 0.75 |
+
+**LoRA**
+| | |
+|---|---|
+| Rank `r` / `alpha` | 16 / 32 |
+| Dropout | 0.065 |
+| Target modules | all-linear |
+
+**Training**
+| | |
+|---|---|
+| Loss | Multi-positive InfoNCE, `τ = 0.2` |
+| Negatives | 8 random per query |
+| Optimizer | AdamW, `lr = 1e-3` |
+| Schedule | Linear warmup (10%) → linear decay |
+| Batch size / epochs | 2 / 200 |
+
+---
+
+## Layout
+
 ```
-
-**Encode the corpus** with a trained checkpoint:
-
-```bash
-python encode_corpus.py <checkpoint_dir> corpus_encoded.pt
-```
-
-**Search from the terminal** (Cmd/Ctrl-click results to open the PDF):
-
-```bash
-python search.py <checkpoint_dir> corpus_encoded.pt 0.75
-```
-
-**Run the web app:**
-
-```bash
-python app.py
-# → http://127.0.0.1:5000
+.
+├── model.py                    # encoder, tokenizer, special tokens, device selection
+├── utils.py                    # AddTokens — the only place strings get wrapped
+├── train.py                    # NFCorpus dataset, multi-positive InfoNCE, LoRA loop
+├── encode_corpus.py            # corpus → corpus_encoded.pt
+├── indexer.py                  # encode_doc + thread-safe append_to_index
+├── search.py                   # terminal REPL with clickable OSC-8 PDF links
+├── app.py                      # Flask app: search, /add, PDF serving
+├── config.py                   # paths, defaults, host/port
+├── templates/index.html        # single-page UI
+├── adapter_config.json         # LoRA config
+├── adapter_model.safetensors   # trained LoRA weights (≈ 6 MB)
+├── corpus_encoded.pt           # {doc_vecs: (N, D), pdf_paths: [str]}
+└── data/nfcorpus/              # corpus, queries, qrels, PDFs
 ```
 
 ---
 
-## Configuration
+## References
 
-All tunables live in `config.py`:
+- Karpukhin et al. (2020). [Dense Passage Retrieval for Open-Domain Question Answering](https://arxiv.org/abs/2004.04906)
+- Hu et al. (2021). [LoRA: Low-Rank Adaptation of Large Language Models](https://arxiv.org/abs/2106.09685)
+- Wang et al. (2022). [Text Embeddings by Weakly-Supervised Contrastive Pre-training (E5)](https://arxiv.org/abs/2212.03533)
+- Warner et al. (2024). [ModernBERT: Smarter, Better, Faster, Longer](https://arxiv.org/abs/2412.13663)
+- Boteva et al. (2016). [NFCorpus: A Full-Text Learning to Rank Dataset for Medical Information Retrieval](https://www.cl.uni-heidelberg.de/statnlpgroup/nfcorpus/)
 
-| Setting              | Default                       | Meaning                                         |
-| -------------------- | ----------------------------- | ----------------------------------------------- |
-| `PDF_DIR`            | `data/nfcorpus/pdf_docs`      | Where PDFs are stored and served from           |
-| `CORPUS_JSONL`       | `data/nfcorpus/corpus.jsonl`  | Source of titles/snippets for the metadata index |
-| `CHECKPOINT_PATH`    | project root                  | Directory containing the LoRA adapter           |
-| `ENCODED_PATH`       | `corpus_encoded.pt`           | Dense index file                                |
-| `DEFAULT_TOP_K`      | `5`                           | Max results returned per query                  |
-| `DEFAULT_THRESHOLD`  | `0.75`                        | Minimum cosine similarity to count as a hit     |
-| `MAX_QUERY_LENGTH`   | `256`                         | Query truncation length                         |
-| `MAX_DOC_LENGTH`     | `256`                         | Document truncation length                      |
-| `HOST` / `PORT`      | `127.0.0.1` / `5000`          | Flask bind address                              |
+---
+
+## License
+
+MIT &copy; franciszekparma
