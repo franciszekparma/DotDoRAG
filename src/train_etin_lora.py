@@ -11,7 +11,7 @@ import random
 import pandas as pd
 
 from utils import AddTokens
-from model import model, tokenizer, device
+from model import etin, etin_tokenizer, device
 
 
 class NFCorpusDataset(Dataset):
@@ -115,7 +115,7 @@ def collate_fn(batch):
   negatives = [text for item in batch for text in item['negative_texts']]
 
   def tokenize(texts):
-    return tokenizer(
+    return etin_tokenizer(
       texts,
       padding=True,
       truncation=True,
@@ -148,8 +148,9 @@ def main():
     task_type=None,
     init_lora_weights=True
   )
+  model = etin
   model.enc = get_peft_model(model.enc, peft_config)
-
+  
   optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
   loss_fn = MultiNCELoss()
   
