@@ -1,80 +1,14 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from peft import LoraConfig, get_peft_model
 from transformers import get_linear_schedule_with_warmup
 
 from tqdm.auto import tqdm
-import json
-import random
-import pandas as pd
 
-from utils import AddTokens
+from data import NFCorpusDataset
 from model import etin, etin_tokenizer, device
-
-
-class NFCorpusDataset(Dataset):
-  def __init__(self,
-    qrels_path='data/nfcorpus/qrels/',
-    queries_path='data/nfcorpus/queries.jsonl',
-    corpus_path='data/nfcorpus/corpus.jsonl',
-    num_negatives=8,
-    split='train'
-  ):
-    super().__init__()
-    if split.upper() == 'TRAIN':
-      qrels_path += 'train.tsv'
-    elif split.upper() == 'TEST':
-      qrels_path += 'test.tsv'
-    elif split.upper() == 'DEV':
-      qrels_path += 'dev.tsv'
-
-    self.ta = AddTokens()
-    self.num_negatives = num_negatives
-
-    self.queries = {}
-    with open(queries_path, 'r', encoding='utf-8') as f:
-      for line in f:
-        item = json.loads(line)
-        self.queries[item['_id']] = self.ta.add_query_tokens(item['text'])
-
-    self.corpus = {}
-    with open(corpus_path, 'r', encoding='utf-8') as f:
-      for line in f:
-        item = json.loads(line)
-        doc = ""
-        if 'title' in item: doc += self.ta.add_title_tokens(item['title']) + " "
-        if 'text' in item: doc += self.ta.add_text_tokens(item['text'])
-        self.corpus[item['_id']] = doc.strip()
-
-    self.all_corpus_ids = list(self.corpus.keys())
-
-    qrels = pd.read_csv(qrels_path, sep='\t')
-    self.data = qrels.groupby('query-id')['corpus-id'].apply(list).reset_index()
-
-  def __len__(self):
-    return len(self.data)
-
-  def __getitem__(self, idx):
-    row = self.data.iloc[idx]
-    query_id = row['query-id']
-    pos_ids = set(row['corpus-id'])
-
-    neg_ids = []
-    while len(neg_ids) < self.num_negatives:
-      sampled = random.choice(self.all_corpus_ids)
-      if sampled not in pos_ids:
-        neg_ids.append(sampled)
-
-    pos_id = random.choice(list(pos_ids))
-
-    return {
-      'query_id': query_id,
-      'query_text': self.queries[query_id],
-      'positive_texts': [self.corpus[pos_id]],
-      'negative_texts': [self.corpus[cid] for cid in neg_ids]
-    }
 
 
 class MultiNCELoss(nn.Module):

@@ -1,213 +1,259 @@
+import os
+import math
+import random
+
+import numpy as np
 import torch
 from torch import nn
 import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from peft import LoraConfig, get_peft_model
-from transformers import get_linear_schedule_with_warmup
+from transformers import get_cosine_schedule_with_warmup
 
 from tqdm.auto import tqdm
-import json
-import random
-import pandas as pd
 
-from utils import AddTokens
+from data import NFCorpusDataset
 from model import bge, bge_tokenizer, device
 
 
-class NFCorpusDataset(Dataset):
-  def __init__(self,
-    qrels_path='data/nfcorpus/qrels/',
-    queries_path='data/nfcorpus/queries.jsonl',
-    corpus_path='data/nfcorpus/corpus.jsonl',
-    num_negatives=8,
-    split='train'
-  ):
-    super().__init__()
-    if split.upper() == 'TRAIN':
-      qrels_path += 'train.tsv'
-    elif split.upper() == 'TEST':
-      qrels_path += 'test.tsv'
-    elif split.upper() == 'DEV':
-      qrels_path += 'dev.tsv'
-
-    self.ta = AddTokens()
-    self.num_negatives = num_negatives
-
-    self.queries = {}
-    with open(queries_path, 'r', encoding='utf-8') as f:
-      for line in f:
-        item = json.loads(line)
-        self.queries[item['_id']] = self.ta.add_query_tokens(item['text'])
-
-    self.corpus = {}
-    with open(corpus_path, 'r', encoding='utf-8') as f:
-      for line in f:
-        item = json.loads(line)
-        doc = ""
-        if 'title' in item: doc += self.ta.add_title_tokens(item['title']) + " "
-        if 'text' in item: doc += self.ta.add_text_tokens(item['text'])
-        self.corpus[item['_id']] = doc.strip()
-
-    self.all_corpus_ids = list(self.corpus.keys())
-
-    qrels = pd.read_csv(qrels_path, sep='\t')
-    self.data = qrels.groupby('query-id')['corpus-id'].apply(list).reset_index()
-
-  def __len__(self):
-    return len(self.data)
-
-  def __getitem__(self, idx):
-    row = self.data.iloc[idx]
-    query_id = row['query-id']
-    pos_ids = set(row['corpus-id'])
-
-    neg_ids = []
-    while len(neg_ids) < self.num_negatives:
-      sampled = random.choice(self.all_corpus_ids)
-      if sampled not in pos_ids:
-        neg_ids.append(sampled)
-
-    pos_id = random.choice(list(pos_ids))
-
-    return {
-      'query_id': query_id,
-      'query_text': self.queries[query_id],
-      'positive_texts': [self.corpus[pos_id]],
-      'negative_texts': [self.corpus[cid] for cid in neg_ids]
-    }
-
-
-class MultiNCELoss(nn.Module):
-  def __init__(self, temp=0.2):
-    super().__init__()
-    
-    self.temp = temp
-    
-  def calc_loss(self, que_vec, pos_vecs, neg_vecs):
-    B = que_vec.size(0)
-    
-    if pos_vecs.dim() == 2:
-      pos_vecs = pos_vecs.unsqueeze(1)
-    if neg_vecs.dim() == 2:
-      neg_vecs = neg_vecs.view(B, -1, neg_vecs.size(-1))
-      
-    que_vec = (F.normalize(que_vec, p=2, dim=1)).unsqueeze(1)
-    pos_vecs = F.normalize(pos_vecs, p=2, dim=2)
-    neg_vecs = F.normalize(neg_vecs, p=2, dim=2)
-    
-    pos_logits = (que_vec * pos_vecs).sum(dim=-1) / self.temp
-    neg_logits = (que_vec * neg_vecs).sum(dim=-1) / self.temp
-    
-    pos_exp = torch.exp(pos_logits)
-    neg_exp = torch.exp(neg_logits)
-    
-    numer = pos_exp.sum(dim=-1)
-    denom = numer + neg_exp.sum(dim=-1)
-    
-    loss = -torch.log((numer + 1e-8) / (denom + 1e-8))
-    
-    return torch.mean(loss)
+SEED = 42
+QUERY_MAX_LEN = 64
+DOC_MAX_LEN = 256
+BATCH_SIZE = 128
+NUM_HARD_NEG = 4
+NUM_RAND_NEG = 4
+LR = 2e-4
+WEIGHT_DECAY = 0.01
+WARMUP_RATIO = 0.06
+EPOCHS = 25
+PATIENCE = 4
+GRAD_CLIP = 1.0
+TEMP = 0.02
+EVAL_K = 10
+NUM_WORKERS = 4
+CHECKPOINT_DIR = '../bge_lora_checkpoints'
 
 
 def collate_fn(batch):
   queries = [item['query_text'] for item in batch]
-  positives = [text for item in batch for text in item['positive_texts']]
+  positives = [item['positive_texts'][0] for item in batch]
   negatives = [text for item in batch for text in item['negative_texts']]
 
-  def tokenize(texts):
-    return bge_tokenizer(
-      texts,
-      padding=True,
-      truncation=True,
-      max_length=256,
-      return_tensors='pt'
-    )
-
   return {
-    'query_id': [item['query_id'] for item in batch],
-    'query': tokenize(queries),
-    'positives': tokenize(positives),
-    'negatives': tokenize(negatives),
+    'query_ids': [item['query_id'] for item in batch],
+    'pos_ids': [item['pos_id'] for item in batch],
+    'graded_positives': [item['graded_positives'] for item in batch],
+    'q': bge_tokenizer(queries, padding=True, truncation=True,
+                       max_length=QUERY_MAX_LEN, return_tensors='pt'),
+    'p': bge_tokenizer(positives, padding=True, truncation=True,
+                       max_length=DOC_MAX_LEN, return_tensors='pt'),
+    'n': bge_tokenizer(negatives, padding=True, truncation=True,
+                       max_length=DOC_MAX_LEN, return_tensors='pt'),
   }
 
 
+def build_pos_mask(pos_ids, graded_positives_list):
+  B = len(pos_ids)
+  mask = torch.zeros(B, B, dtype=torch.bool)
+  for i, gp_i in enumerate(graded_positives_list):
+    for j, pid in enumerate(pos_ids):
+      if pid in gp_i:
+        mask[i, j] = True
+  return mask
+
+
+def in_batch_nce_loss(qv, pv, nv, pos_masks, temp):
+  B = qv.size(0)
+  qv = F.normalize(qv.float(), dim=-1)
+  pv = F.normalize(pv.float(), dim=-1)
+  nv = F.normalize(nv.float(), dim=-1)
+  docs = torch.cat([pv, nv], dim=0)
+  logits = (qv @ docs.T) / temp
+  diag = torch.eye(B, dtype=torch.bool, device=qv.device)
+  off_diag_pos = pos_masks & ~diag
+  logits[:, :B] = logits[:, :B].masked_fill(off_diag_pos, float('-inf'))
+  labels = torch.arange(B, device=qv.device)
+  return F.cross_entropy(logits, labels)
+
+
+@torch.inference_mode()
+def encode_texts(model, texts, batch_size=256, max_len=DOC_MAX_LEN, use_amp=True):
+  vecs = []
+  for i in range(0, len(texts), batch_size):
+    chunk = texts[i:i + batch_size]
+    b = bge_tokenizer(chunk, padding=True, truncation=True,
+                      max_length=max_len, return_tensors='pt')
+    b = {k: v.to(device, non_blocking=True) for k, v in b.items()}
+    with torch.autocast(device_type='cuda', dtype=torch.bfloat16, enabled=use_amp):
+      v = model.enc(**b).last_hidden_state[..., 0, :]
+    vecs.append(F.normalize(v.float(), dim=-1).cpu())
+  return torch.cat(vecs, dim=0)
+
+
+def retrieval_metrics(model, ds, k=EVAL_K, use_amp=True):
+  was_training = model.training
+  model.eval()
+  doc_emb = encode_texts(model, [ds.corpus[cid] for cid in ds.corpus_ids],
+                         max_len=DOC_MAX_LEN, use_amp=use_amp)
+  q_emb = encode_texts(model, [ds.queries[qid] for qid in ds.query_ids],
+                       max_len=QUERY_MAX_LEN, use_amp=use_amp)
+  sims = q_emb @ doc_emb.T
+  topk = sims.topk(k, dim=-1).indices.numpy()
+
+  ndcgs, recalls = [], []
+  for qi, qid in enumerate(ds.query_ids):
+    graded = ds.graded[qid]
+    ranked = [graded.get(ds.corpus_ids[idx], 0) for idx in topk[qi]]
+    dcg = sum((2 ** r - 1) / math.log2(i + 2) for i, r in enumerate(ranked))
+    ideal = sorted(graded.values(), reverse=True)[:k]
+    idcg = sum((2 ** r - 1) / math.log2(i + 2) for i, r in enumerate(ideal))
+    if idcg > 0:
+      ndcgs.append(dcg / idcg)
+    n_pos = sum(1 for v in graded.values() if v > 0)
+    hits = sum(1 for r in ranked if r > 0)
+    if n_pos > 0:
+      recalls.append(hits / n_pos)
+
+  if was_training:
+    model.train()
+  return {
+    f'ndcg@{k}': sum(ndcgs) / max(len(ndcgs), 1),
+    f'recall@{k}': sum(recalls) / max(len(recalls), 1),
+  }
+
 
 def main():
-  train_ds = NFCorpusDataset(split='train')
-  val_ds = NFCorpusDataset(split='dev')
-  dl_kw = dict(batch_size=2, collate_fn=collate_fn)
+  random.seed(SEED)
+  np.random.seed(SEED)
+  torch.manual_seed(SEED)
+  if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(SEED)
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.set_float32_matmul_precision('high')
+
+  train_ds = NFCorpusDataset(
+    split='TRAIN',
+    num_hard_neg=NUM_HARD_NEG,
+    num_rand_neg=NUM_RAND_NEG,
+    mine_hard_negs=(NUM_HARD_NEG > 0),
+    seed=SEED,
+  )
+  val_ds = NFCorpusDataset(
+    split='VAL',
+    num_hard_neg=0,
+    num_rand_neg=NUM_HARD_NEG + NUM_RAND_NEG,
+    seed=SEED,
+  )
+
+  dl_kw = dict(
+    batch_size=BATCH_SIZE,
+    collate_fn=collate_fn,
+    num_workers=NUM_WORKERS,
+    pin_memory=(device == 'cuda'),
+    persistent_workers=(NUM_WORKERS > 0),
+  )
   train_dl = DataLoader(train_ds, shuffle=True, drop_last=True, **dl_kw)
-  val_dl = DataLoader(val_ds, shuffle=False, drop_last=False, **dl_kw)
 
   peft_config = LoraConfig(
     r=16,
     lora_alpha=32,
-    target_modules="all-linear",
-    lora_dropout=0.065,
+    target_modules=["query", "key", "value", "dense"],
+    lora_dropout=0.05,
     bias="none",
     task_type=None,
-    init_lora_weights=True
+    init_lora_weights=True,
+    modules_to_save=["word_embeddings"],
   )
   model = bge
   model.enc = get_peft_model(model.enc, peft_config)
+  model.enc.print_trainable_parameters()
 
-  optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
-  loss_fn = MultiNCELoss()
-  
-  epochs = 200
-  
-  total_steps = len(train_dl) * epochs
-  warmup_steps = int(0.1 * total_steps)
-
-  scheduler = get_linear_schedule_with_warmup(
-    optimizer,
-    num_warmup_steps=warmup_steps,
-    num_training_steps=total_steps
+  trainable = [p for p in model.parameters() if p.requires_grad]
+  optimizer = torch.optim.AdamW(
+    trainable, lr=LR, weight_decay=WEIGHT_DECAY,
+    fused=(device == 'cuda'),
   )
-  
-  best_val = float('inf')
-  
-  for epoch in range(epochs):
+
+  total_steps = len(train_dl) * EPOCHS
+  warmup_steps = max(1, int(WARMUP_RATIO * total_steps))
+  scheduler = get_cosine_schedule_with_warmup(optimizer, warmup_steps, total_steps)
+
+  use_amp = (device == 'cuda')
+  os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+
+  best_ndcg = -1.0
+  best_state = None
+  epochs_since_best = 0
+
+  for epoch in range(EPOCHS):
     model.train()
     train_losses = []
-    for X in tqdm(train_dl, desc=f'Epoch {epoch + 1}/{epochs} train', unit='batch'):
-      queries, positives, negatives = X['query'], X['positives'], X['negatives']
-      queries, positives, negatives = {k: v.to(device) for k, v in queries.items()}, {k: v.to(device) for k, v in positives.items()}, {k: v.to(device) for k, v in negatives.items()}
-      
-      que_vecs, pos_vecs, neg_vecs = model(queries, positives, negatives)
-      
-      loss = loss_fn.calc_loss(que_vecs, pos_vecs, neg_vecs)
-      
-      train_losses.append(loss.item())
-      optimizer.zero_grad()
-      
+    for X in tqdm(train_dl, desc=f'Epoch {epoch + 1}/{EPOCHS} train', unit='batch'):
+      q = {k: v.to(device, non_blocking=True) for k, v in X['q'].items()}
+      p = {k: v.to(device, non_blocking=True) for k, v in X['p'].items()}
+      n = {k: v.to(device, non_blocking=True) for k, v in X['n'].items()}
+      pos_masks = build_pos_mask(X['pos_ids'], X['graded_positives']).to(device, non_blocking=True)
+
+      optimizer.zero_grad(set_to_none=True)
+      with torch.autocast(device_type='cuda', dtype=torch.bfloat16, enabled=use_amp):
+        qv, pv, nv = model(q, p, n)
+      loss = in_batch_nce_loss(qv, pv, nv, pos_masks, TEMP)
+
       loss.backward()
+      torch.nn.utils.clip_grad_norm_(trainable, GRAD_CLIP)
       optimizer.step()
       scheduler.step()
+      train_losses.append(loss.item())
 
-    val_losses = []
-    
-    model.eval()
-    with torch.inference_mode():
-      for X in tqdm(val_dl, desc=f'Epoch {epoch + 1}/{epochs} val', leave=False, unit='batch'):
-        queries, positives, negatives = X['query'], X['positives'], X['negatives']
-        queries, positives, negatives = {k: v.to(device) for k, v in queries.items()}, {k: v.to(device) for k, v in positives.items()}, {k: v.to(device) for k, v in negatives.items()}
-        
-        que_vecs, pos_vecs, neg_vecs = model(queries, positives, negatives)
-        
-        val_losses.append(loss_fn.calc_loss(que_vecs, pos_vecs, neg_vecs).item())
+    train_loss = sum(train_losses) / len(train_losses)
+    val_metrics = retrieval_metrics(model, val_ds, k=EVAL_K, use_amp=use_amp)
+    val_ndcg = val_metrics[f'ndcg@{EVAL_K}']
+    val_recall = val_metrics[f'recall@{EVAL_K}']
 
-    train_loss, val_loss = sum(train_losses) / len(train_losses), sum(val_losses) / len(val_losses)
-    
     saved = ''
-    if val_loss < best_val:
-      best_val = val_loss
-      checkpoint_path = f'..bge_lora_checkpoints/epoch_{epoch+1}_train_{train_loss:.4f}_val_{val_loss:.4f}'
-      model.enc.save_pretrained(checkpoint_path)
-      saved = f'!!!Saved the best model at: {checkpoint_path}!!!'
-      
-    tqdm.write(f'Epoch {epoch + 1}/{epochs}: train={train_loss:.4f} val={val_loss:.4f} (best val={best_val:.4f}){saved}')
-  
+    if val_ndcg > best_ndcg:
+      best_ndcg = val_ndcg
+      epochs_since_best = 0
+      ckpt = os.path.join(
+        CHECKPOINT_DIR,
+        f'epoch_{epoch + 1}_train_{train_loss:.4f}_ndcg_{val_ndcg:.4f}'
+      )
+      model.enc.save_pretrained(ckpt)
+      best_state = {n: p.detach().cpu().clone()
+                    for n, p in model.named_parameters() if p.requires_grad}
+      saved = f' !!!Saved best at: {ckpt}!!!'
+    else:
+      epochs_since_best += 1
+
+    tqdm.write(
+      f'Epoch {epoch + 1}/{EPOCHS}: train_loss={train_loss:.4f} '
+      f'val_ndcg@{EVAL_K}={val_ndcg:.4f} val_recall@{EVAL_K}={val_recall:.4f} '
+      f'(best_ndcg={best_ndcg:.4f}){saved}'
+    )
+
+    if epochs_since_best >= PATIENCE:
+      tqdm.write(f'Early stopping: no nDCG improvement for {PATIENCE} epochs.')
+      break
+
+  if best_state is not None:
+    with torch.no_grad():
+      own = dict(model.named_parameters())
+      for n, p in best_state.items():
+        own[n].data.copy_(p.to(own[n].device))
+
+  test_ds = NFCorpusDataset(
+    split='TEST',
+    num_hard_neg=0,
+    num_rand_neg=0,
+    seed=SEED,
+  )
+  test_metrics = retrieval_metrics(model, test_ds, k=EVAL_K, use_amp=use_amp)
+  tqdm.write(
+    f'\nFinal held-out test: ndcg@{EVAL_K}={test_metrics[f"ndcg@{EVAL_K}"]:.4f} '
+    f'recall@{EVAL_K}={test_metrics[f"recall@{EVAL_K}"]:.4f}'
+  )
+
 
 if __name__ == '__main__':
   main()
