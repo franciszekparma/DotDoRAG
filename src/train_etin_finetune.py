@@ -11,24 +11,24 @@ import random
 import numpy as np
 import pandas as pd
 
-from utils import AddTokens
+from utils import (
+  AddTokens,
+  SEED,
+  ETIN_FT_QUERY_MAX_LEN as QUERY_MAX_LEN,
+  ETIN_FT_DOC_MAX_LEN as DOC_MAX_LEN,
+  ETIN_FT_BATCH_SIZE as BATCH_SIZE,
+  ETIN_FT_NUM_HARD_NEG as NUM_HARD_NEG,
+  ETIN_FT_NUM_RAND_NEG as NUM_RAND_NEG,
+  ETIN_FT_LR as LR,
+  ETIN_FT_WEIGHT_DECAY as WEIGHT_DECAY,
+  ETIN_FT_WARMUP_RATIO as WARMUP_RATIO,
+  ETIN_FT_EPOCHS as EPOCHS,
+  ETIN_FT_PATIENCE as PATIENCE,
+  ETIN_FT_GRAD_CLIP as GRAD_CLIP,
+  ETIN_FT_TEMP as TEMP,
+  ETIN_FT_EVAL_K as EVAL_K,
+)
 from model import etin, etin_tokenizer, device
-
-
-SEED = 42
-QUERY_MAX_LEN = 64
-DOC_MAX_LEN = 512
-BATCH_SIZE = 128
-NUM_HARD_NEG = 16
-NUM_RAND_NEG = 16
-LR = 5e-5
-WEIGHT_DECAY = 0.01
-WARMUP_RATIO = 0.06
-EPOCHS = 60
-PATIENCE = 8
-GRAD_CLIP = 1.0
-TEMP = 0.05
-EVAL_K = 10
 
 
 class NFCorpusDataset(Dataset):

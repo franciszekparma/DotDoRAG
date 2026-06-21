@@ -11,15 +11,18 @@ from peft import PeftModel
 from rank_bm25 import BM25Okapi
 
 from data import NFCorpusDataset
-from utils import AddTokens
-
-BGE_NAME = 'BAAI/bge-small-en-v1.5'
-ETIN_NAME = 'jhu-clsp/ettin-encoder-150m'
-BGE_QUERY_PREFIX = 'Represent this sentence for searching relevant passages: '
-QUERY_MAX_LEN = 96
-DOC_MAX_LEN = 512
-K = 10
-SPECIAL_TOKS = ('<QRY>', '</QRY>', '<TLE>', '</TLE>', '<TXT>', '</TXT>')
+from utils import (
+  AddTokens,
+  BGE_NAME,
+  ETIN_NAME,
+  BGE_QUERY_PREFIX,
+  SPECIAL_TOKS,
+  MAX_QUERY_LENGTH as QUERY_MAX_LEN,
+  MAX_DOC_LENGTH as DOC_MAX_LEN,
+  EVAL_K as K,
+  EVAL_BATCH_SIZE,
+  EVAL_ETIN_MAX_LEN,
+)
 
 device = ('cuda' if torch.cuda.is_available()
           else 'mps' if torch.backends.mps.is_available()
@@ -71,8 +74,8 @@ def score_from_topk(topk_idx, corpus_ids, graded_per_q, query_ids, k):
 
 def eval_dense(enc, tok, queries_list, corpus_list, corpus_ids, graded, query_ids,
                q_prefix='', qmax=QUERY_MAX_LEN, dmax=DOC_MAX_LEN, k=K):
-  doc_emb = encode(enc, tok, corpus_list, 128, dmax)
-  q_emb = encode(enc, tok, [q_prefix + q for q in queries_list], 128, qmax)
+  doc_emb = encode(enc, tok, corpus_list, EVAL_BATCH_SIZE, dmax)
+  q_emb = encode(enc, tok, [q_prefix + q for q in queries_list], EVAL_BATCH_SIZE, qmax)
   sims = q_emb @ doc_emb.T
   topk = sims.topk(k, dim=-1).indices.numpy()
   return score_from_topk(topk, corpus_ids, graded, query_ids, k)
@@ -163,7 +166,7 @@ def main():
   plain_etin.resize_token_embeddings(len(etin_tok))
   plain_etin = plain_etin.to(device).eval()
   m = eval_dense(plain_etin, etin_tok, raw_queries, raw_corpus, corpus_ids,
-                 graded, query_ids, q_prefix='', qmax=256, dmax=256, k=K)
+                 graded, query_ids, q_prefix='', qmax=EVAL_ETIN_MAX_LEN, dmax=EVAL_ETIN_MAX_LEN, k=K)
   print(f'plain_etin: ndcg@{K}={m[f"ndcg@{K}"]:.4f} recall@{K}={m[f"recall@{K}"]:.4f}')
   results.append(('plain Ettin (zero-shot)', m))
   del plain_etin
@@ -174,7 +177,7 @@ def main():
   print('\n=== etin_lora ===')
   etin_enc = load_etin_with_adapter(os.path.join(repo_root, 'etin_lora'), etin_tok)
   m = eval_dense(etin_enc, etin_tok, tagged_queries, tagged_corpus, corpus_ids,
-                 graded, query_ids, q_prefix='', qmax=256, dmax=256, k=K)
+                 graded, query_ids, q_prefix='', qmax=EVAL_ETIN_MAX_LEN, dmax=EVAL_ETIN_MAX_LEN, k=K)
   print(f'etin_lora: ndcg@{K}={m[f"ndcg@{K}"]:.4f} recall@{K}={m[f"recall@{K}"]:.4f}')
   results.append(('etin_lora', m))
 

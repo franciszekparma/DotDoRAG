@@ -9,10 +9,21 @@ from tqdm.auto import tqdm
 
 from data import NFCorpusDataset
 from model import etin, etin_tokenizer, device
+from utils import (
+  ETIN_LORA_MAX_LEN,
+  ETIN_LORA_BATCH_SIZE,
+  ETIN_LORA_RANK,
+  ETIN_LORA_ALPHA,
+  ETIN_LORA_DROPOUT,
+  ETIN_LORA_LR,
+  ETIN_LORA_EPOCHS,
+  ETIN_LORA_TEMP,
+  ETIN_LORA_WARMUP_RATIO,
+)
 
 
 class MultiNCELoss(nn.Module):
-  def __init__(self, temp=0.2):
+  def __init__(self, temp=ETIN_LORA_TEMP):
     super().__init__()
     
     self.temp = temp
@@ -53,7 +64,7 @@ def collate_fn(batch):
       texts,
       padding=True,
       truncation=True,
-      max_length=256,
+      max_length=ETIN_LORA_MAX_LEN,
       return_tensors='pt'
     )
 
@@ -69,29 +80,29 @@ def collate_fn(batch):
 def main():
   train_ds = NFCorpusDataset(split='train')
   val_ds = NFCorpusDataset(split='dev')
-  dl_kw = dict(batch_size=2, collate_fn=collate_fn)
+  dl_kw = dict(batch_size=ETIN_LORA_BATCH_SIZE, collate_fn=collate_fn)
   train_dl = DataLoader(train_ds, shuffle=True, drop_last=True, **dl_kw)
   val_dl = DataLoader(val_ds, shuffle=False, drop_last=False, **dl_kw)
 
   peft_config = LoraConfig(
-    r=16,
-    lora_alpha=32,
+    r=ETIN_LORA_RANK,
+    lora_alpha=ETIN_LORA_ALPHA,
     target_modules="all-linear",
-    lora_dropout=0.065,
+    lora_dropout=ETIN_LORA_DROPOUT,
     bias="none",
     task_type=None,
     init_lora_weights=True
   )
   model = etin
   model.enc = get_peft_model(model.enc, peft_config)
-  
-  optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+
+  optimizer = torch.optim.AdamW(model.parameters(), lr=ETIN_LORA_LR)
   loss_fn = MultiNCELoss()
-  
-  epochs = 200
-  
+
+  epochs = ETIN_LORA_EPOCHS
+
   total_steps = len(train_dl) * epochs
-  warmup_steps = int(0.1 * total_steps)
+  warmup_steps = int(ETIN_LORA_WARMUP_RATIO * total_steps)
 
   scheduler = get_linear_schedule_with_warmup(
     optimizer,

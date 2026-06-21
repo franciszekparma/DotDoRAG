@@ -65,7 +65,7 @@ def main():
   out_path = sys.argv[2] if len(sys.argv) > 2 else utils.ENCODED_PATH
 
   corpus_ds = NFCorpusDocs()
-  dl_kw = dict(batch_size=16, collate_fn=collate_fn)
+  dl_kw = dict(batch_size=utils.ENCODE_BATCH_SIZE, collate_fn=collate_fn)
   corpus_dl = DataLoader(corpus_ds, shuffle=False, drop_last=False, **dl_kw)
 
   model.enc = PeftModel.from_pretrained(model.enc, checkpoint_path)
