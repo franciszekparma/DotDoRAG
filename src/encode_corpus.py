@@ -8,17 +8,17 @@ import json
 import os
 import sys
 
-from utils import AddTokens
+import utils
 from model import model, tokenizer, device
+from indexer import build_doc_text
 
 
 class NFCorpusDocs(Dataset):
   def __init__(self,
-    corpus_path='data/nfcorpus/corpus.jsonl',
-    pdf_dir='data/nfcorpus/pdf_docs'
+    corpus_path=utils.CORPUS_JSONL,
+    pdf_dir=utils.PDF_DIR
   ):
     super().__init__()
-    self.ta = AddTokens()
 
     self.pdf_paths = []
     self.texts = []
@@ -29,11 +29,8 @@ class NFCorpusDocs(Dataset):
         pdf_path = os.path.join(pdf_dir, title + '.pdf')
         if not os.path.exists(pdf_path):
           continue
-        doc = ""
-        if 'title' in item: doc += self.ta.add_title_tokens(item['title']) + " "
-        if 'text' in item: doc += self.ta.add_text_tokens(item['text'])
         self.pdf_paths.append(pdf_path)
-        self.texts.append(doc.strip())
+        self.texts.append(build_doc_text(item.get('title', ''), item.get('text', '')))
 
   def __len__(self):
     return len(self.texts)
@@ -53,7 +50,7 @@ def collate_fn(batch):
       texts,
       padding=True,
       truncation=True,
-      max_length=256,
+      max_length=utils.MAX_DOC_LENGTH,
       return_tensors='pt'
     )
 
@@ -64,8 +61,8 @@ def collate_fn(batch):
 
 
 def main():
-  checkpoint_path = sys.argv[1] if len(sys.argv) > 1 else '.'
-  out_path = sys.argv[2] if len(sys.argv) > 2 else 'corpus_encoded.pt'
+  checkpoint_path = sys.argv[1] if len(sys.argv) > 1 else utils.CHECKPOINT_PATH
+  out_path = sys.argv[2] if len(sys.argv) > 2 else utils.ENCODED_PATH
 
   corpus_ds = NFCorpusDocs()
   dl_kw = dict(batch_size=16, collate_fn=collate_fn)

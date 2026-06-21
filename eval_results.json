@@ -1,0 +1,52 @@
+{
+  "dataset": "NFCorpus",
+  "split": "TEST",
+  "num_queries": 323,
+  "num_corpus": 3633,
+  "k": 10,
+  "metrics": ["ndcg@10", "recall@10"],
+  "results": [
+    {
+      "method": "bge_lora",
+      "type": "dense",
+      "base_model": "BAAI/bge-small-en-v1.5",
+      "adapter": "bge_lora/adapter_model.safetensors",
+      "ndcg@10": 0.3925,
+      "recall@10": 0.2013
+    },
+    {
+      "method": "BM25",
+      "type": "keyword",
+      "base_model": null,
+      "adapter": null,
+      "ndcg@10": 0.3052,
+      "recall@10": 0.1474
+    },
+    {
+      "method": "plain_bge",
+      "type": "dense",
+      "base_model": "BAAI/bge-small-en-v1.5",
+      "adapter": null,
+      "ndcg@10": 0.2053,
+      "recall@10": 0.1011
+    },
+    {
+      "method": "etin_lora",
+      "type": "dense",
+      "base_model": "jhu-clsp/ettin-encoder-150m",
+      "adapter": "etin_lora/adapter_model.safetensors",
+      "ndcg@10": 0.1016,
+      "recall@10": 0.0356
+    },
+    {
+      "method": "plain_etin",
+      "type": "dense",
+      "base_model": "jhu-clsp/ettin-encoder-150m",
+      "adapter": null,
+      "ndcg@10": 0.0103,
+      "recall@10": 0.0015
+    }
+  ],
+  "best_by_ndcg@10": "bge_lora",
+  "eval_script": "src/eval_compare.py"
+}

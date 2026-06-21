@@ -44,3 +44,6 @@ etin.enc.resize_token_embeddings(len(etin_tokenizer))
 bge_tokenizer = AutoTokenizer.from_pretrained("BAAI/bge-small-en-v1.5")
 bge_tokenizer.add_tokens(list(token_adder.new_tokens.values()))
 bge.enc.resize_token_embeddings(len(bge_tokenizer))
+
+model = bge
+tokenizer = bge_tokenizer
