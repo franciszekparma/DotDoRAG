@@ -1,7 +1,7 @@
 <h1 align="center">SimpleRAG — A LoRA-Tuned Bi-Encoder for Clinical Literature Retrieval</h1>
 
 <p align="center">
-  <img src="images/rag_illustration.jpg" alt="SimpleRAG illustration" width="640">
+  <img src="images/rag_illustration.jpg" alt="SimpleRAG illustration" width="800">
 </p>
 
 <p align="center">
