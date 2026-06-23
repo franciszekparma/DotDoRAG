@@ -6,7 +6,7 @@ import gc
 import numpy as np
 import torch
 import torch.nn.functional as F
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import average_precision_score, roc_auc_score
 from transformers import AutoModel, AutoTokenizer
 from peft import PeftModel
 from rank_bm25 import BM25Okapi
@@ -73,15 +73,18 @@ def score_from_topk(topk_idx, corpus_ids, graded_per_q, query_ids, k):
   }
 
 
-def eval_roc_auc(scores, corpus_ids, graded, query_ids):
-  aucs = []
+def eval_auc_metrics(scores, corpus_ids, graded, query_ids):
+  rocs, prs = [], []
   for qi, qid in enumerate(query_ids):
     y = np.array([1 if graded[qid].get(corpus_ids[j], 0) > 0 else 0
                   for j in range(len(corpus_ids))])
     if len(np.unique(y)) < 2:
       continue
-    aucs.append(roc_auc_score(y, scores[qi]))
-  return {'roc_auc': sum(aucs) / max(len(aucs), 1)}
+    y_score = scores[qi]
+    rocs.append(roc_auc_score(y, y_score))
+    prs.append(average_precision_score(y, y_score))
+  n = max(len(rocs), 1)
+  return {'roc_auc': sum(rocs) / n, 'auc_pr': sum(prs) / n}
 
 
 def eval_dense(enc, tok, queries_list, corpus_list, corpus_ids, graded, query_ids,
@@ -91,7 +94,7 @@ def eval_dense(enc, tok, queries_list, corpus_list, corpus_ids, graded, query_id
   sims = q_emb @ doc_emb.T
   topk = sims.topk(k, dim=-1).indices.numpy()
   m = score_from_topk(topk, corpus_ids, graded, query_ids, k)
-  m.update(eval_roc_auc(sims.numpy(), corpus_ids, graded, query_ids))
+  m.update(eval_auc_metrics(sims.numpy(), corpus_ids, graded, query_ids))
   return m
 
 
@@ -106,7 +109,7 @@ def eval_bm25(queries_list, corpus_list, corpus_ids, graded, query_ids, k=K):
     topk[qi] = np.argpartition(-scores, kth=k - 1)[:k]
     topk[qi] = topk[qi][np.argsort(-scores[topk[qi]])]
   m = score_from_topk(topk, corpus_ids, graded, query_ids, k)
-  m.update(eval_roc_auc(all_scores, corpus_ids, graded, query_ids))
+  m.update(eval_auc_metrics(all_scores, corpus_ids, graded, query_ids))
   return m
 
 
@@ -146,7 +149,7 @@ def main():
 
   print('\n=== BM25 (keyword search) ===')
   m = eval_bm25(raw_queries, raw_corpus, corpus_ids, graded, query_ids, k=K)
-  print(f'BM25: ndcg@{K}={m[f"ndcg@{K}"]:.4f} recall@{K}={m[f"recall@{K}"]:.4f} roc_auc={m["roc_auc"]:.4f}')
+  print(f'BM25: ndcg@{K}={m[f"ndcg@{K}"]:.4f} recall@{K}={m[f"recall@{K}"]:.4f} roc_auc={m["roc_auc"]:.4f} auc_pr={m["auc_pr"]:.4f}')
   results.append(('BM25 (keyword)', m))
 
   bge_tok = AutoTokenizer.from_pretrained(BGE_NAME)
@@ -158,7 +161,7 @@ def main():
   plain_bge = plain_bge.to(device).eval()
   m = eval_dense(plain_bge, bge_tok, raw_queries, raw_corpus, corpus_ids, graded,
                  query_ids, q_prefix=BGE_QUERY_PREFIX, k=K)
-  print(f'plain_bge: ndcg@{K}={m[f"ndcg@{K}"]:.4f} recall@{K}={m[f"recall@{K}"]:.4f} roc_auc={m["roc_auc"]:.4f}')
+  print(f'plain_bge: ndcg@{K}={m[f"ndcg@{K}"]:.4f} recall@{K}={m[f"recall@{K}"]:.4f} roc_auc={m["roc_auc"]:.4f} auc_pr={m["auc_pr"]:.4f}')
   results.append(('plain BGE (zero-shot)', m))
   del plain_bge
   gc.collect()
@@ -169,7 +172,7 @@ def main():
   bge_enc = load_bge_with_adapter(os.path.join(repo_root, 'bge_lora'), bge_tok)
   m = eval_dense(bge_enc, bge_tok, raw_queries, raw_corpus, corpus_ids, graded,
                  query_ids, q_prefix=BGE_QUERY_PREFIX, k=K)
-  print(f'bge_lora: ndcg@{K}={m[f"ndcg@{K}"]:.4f} recall@{K}={m[f"recall@{K}"]:.4f} roc_auc={m["roc_auc"]:.4f}')
+  print(f'bge_lora: ndcg@{K}={m[f"ndcg@{K}"]:.4f} recall@{K}={m[f"recall@{K}"]:.4f} roc_auc={m["roc_auc"]:.4f} auc_pr={m["auc_pr"]:.4f}')
   results.append(('bge_lora', m))
   del bge_enc
   gc.collect()
@@ -185,7 +188,7 @@ def main():
   plain_etin = plain_etin.to(device).eval()
   m = eval_dense(plain_etin, etin_tok, raw_queries, raw_corpus, corpus_ids,
                  graded, query_ids, q_prefix='', qmax=EVAL_ETIN_MAX_LEN, dmax=EVAL_ETIN_MAX_LEN, k=K)
-  print(f'plain_etin: ndcg@{K}={m[f"ndcg@{K}"]:.4f} recall@{K}={m[f"recall@{K}"]:.4f} roc_auc={m["roc_auc"]:.4f}')
+  print(f'plain_etin: ndcg@{K}={m[f"ndcg@{K}"]:.4f} recall@{K}={m[f"recall@{K}"]:.4f} roc_auc={m["roc_auc"]:.4f} auc_pr={m["auc_pr"]:.4f}')
   results.append(('plain Ettin (zero-shot)', m))
   del plain_etin
   gc.collect()
@@ -196,13 +199,13 @@ def main():
   etin_enc = load_etin_with_adapter(os.path.join(repo_root, 'etin_lora'), etin_tok)
   m = eval_dense(etin_enc, etin_tok, tagged_queries, tagged_corpus, corpus_ids,
                  graded, query_ids, q_prefix='', qmax=EVAL_ETIN_MAX_LEN, dmax=EVAL_ETIN_MAX_LEN, k=K)
-  print(f'etin_lora: ndcg@{K}={m[f"ndcg@{K}"]:.4f} recall@{K}={m[f"recall@{K}"]:.4f} roc_auc={m["roc_auc"]:.4f}')
+  print(f'etin_lora: ndcg@{K}={m[f"ndcg@{K}"]:.4f} recall@{K}={m[f"recall@{K}"]:.4f} roc_auc={m["roc_auc"]:.4f} auc_pr={m["auc_pr"]:.4f}')
   results.append(('etin_lora', m))
 
   print('\n=== SUMMARY (TEST set) ===')
-  print(f'{"method":24s} {"nDCG@10":>10s} {"Recall@10":>10s} {"ROC-AUC":>10s}')
+  print(f'{"method":24s} {"nDCG@10":>10s} {"Recall@10":>10s} {"ROC-AUC":>10s} {"AUC-PR":>10s}')
   for name, m in results:
-    print(f'{name:24s} {m[f"ndcg@{K}"]:>10.4f} {m[f"recall@{K}"]:>10.4f} {m["roc_auc"]:>10.4f}')
+    print(f'{name:24s} {m[f"ndcg@{K}"]:>10.4f} {m[f"recall@{K}"]:>10.4f} {m["roc_auc"]:>10.4f} {m["auc_pr"]:>10.4f}')
   best = max(results, key=lambda r: r[1][f'ndcg@{K}'])
   print(f'\nBest by nDCG@{K}: {best[0]} ({best[1][f"ndcg@{K}"]:.4f})')
 
