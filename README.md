@@ -227,8 +227,9 @@ NFCorpus test split — **323 queries · 3,633 corpus documents · top-10 evalua
 
 <p align="center">
   <img src="plots/fig_metrics_bars.png" alt="NDCG vs Recall scatter" width="800">
-  &nbsp;&nbsp;
-  ---
+</p>
+  
+<p align="center">
   <img src="plots/fig_lift.png" alt="Lift over BM25" width="800">
 </p>
 
