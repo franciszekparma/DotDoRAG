@@ -8,13 +8,6 @@
   <em>A small semantic search engine for medical / nutritional papers. A pretrained encoder is fine-tuned with LoRA so that queries and the documents that answer them land near each other in vector space, and retrieval at query time is a single matrix multiply against a pre-encoded corpus.</em>
 </p>
 
-<p align="center">
-  <a href="#results"><img alt="NDCG@10" src="https://img.shields.io/badge/NDCG%4010-0.393-0ea5e9?style=flat-square"></a>
-  <a href="#results"><img alt="vs BM25" src="https://img.shields.io/badge/vs%20BM25-%2B29%25-10b981?style=flat-square"></a>
-  <a href="#results"><img alt="vs zero-shot" src="https://img.shields.io/badge/vs%20zero--shot%20BGE-%2B91%25-10b981?style=flat-square"></a>
-  <img alt="Adapter size" src="https://img.shields.io/badge/adapter-13%20MB-94a3b8?style=flat-square">
-  <img alt="License" src="https://img.shields.io/badge/license-MIT-94a3b8?style=flat-square">
-</p>
 
 ---
 
