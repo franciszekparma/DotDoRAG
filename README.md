@@ -16,7 +16,7 @@
 
   <img alt="NVIDIA A100" src="https://img.shields.io/badge/Trained_on-NVIDIA_A100-76B900?logo=nvidia&logoColor=white" />
 
-  <img alt="License" src="https://img.shields.io/badge/License-MIT-green" />
+  <img alt="License" src="https://img.shields.io/badge/License-MIT-8A2BE2" />
 
 </p>
 
