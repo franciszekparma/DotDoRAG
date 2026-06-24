@@ -1,7 +1,7 @@
 <h1 align="center">DotDoRAG — A LoRA-Tuned Bi-Encoder for Clinical Literature Retrieval</h1>
 
 <p align="center">
-  <img src="images/rag_illustration.jpg" alt="SimpleRAG illustration" height="350" width="550">
+  <img src="imgs/illustration.png" alt="SimpleRAG illustration" height="350" width="550">
 </p>
 
 <p align="center">
