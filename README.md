@@ -226,10 +226,12 @@ NFCorpus test split — **323 queries · 3,633 corpus documents · top-10 evalua
 | plain_etin (zero-shot) | Ettin-150M | — | 0.0103 | 0.0015 |
 
 <p align="center">
-  <img src="plots/fig_metrics_bars.png" alt="NDCG vs Recall scatter" width="560">
+  <img src="plots/fig_metrics_bars.png" alt="NDCG vs Recall scatter" width="800">
   &nbsp;&nbsp;
-  <img src="plots/fig_lift.png" alt="Lift over BM25" width="560">
+  ---
+  <img src="plots/fig_lift.png" alt="Lift over BM25" width="800">
 </p>
+
 
 **Takeaways**
 
