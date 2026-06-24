@@ -51,10 +51,10 @@ Four options for *given a query and a corpus, return relevant documents*:
 
 | Approach | Speed | Quality | Notes |
 |---|---|---|---|
-| BM25 / TF-IDF | Fast | OK | Lexical only; collapses on paraphrase |
+| BM25 / TF-IDF | Fast | OK | Lexical only collapses on paraphrase |
 | Cross-encoder | Slow | Best | Re-runs the model per (query, doc) pair |
 | **Bi-encoder** | **Fast** | **Good** | Encode once offline, matmul at query time |
-| Generative RAG | — | — | Bi-encoder + LLM on top; out of scope here |
+| Generative RAG | — | — | Bi-encoder + LLM on top out of scope here |
 
 Bi-encoder is the right trade-off at this scale: real transformer quality, but the heavy compute moves to a one-time encoding pass.
 
@@ -85,7 +85,7 @@ At query time: encode the query once, compute one `(1 × d) @ (d × N)` matmul, 
 Two encoders compared, both fine-tuned with LoRA:
 
 - **BGE-small-en-v1.5** (`BAAI/bge-small-en-v1.5`) — ~33M params, already pretrained as a retrieval encoder on hundreds of millions of pairs. Strong zero-shot baseline.
-- **Ettin-150M** (`jhu-clsp/ettin-encoder-150m`) — ModernBERT internals (rotary position embeddings, GeGLU, alternating local/global attention). Not pretrained specifically for retrieval; we fine-tune it from a more general starting point.
+- **Ettin-150M** (`jhu-clsp/ettin-encoder-150m`) — ModernBERT internals (rotary position embeddings, GeGLU, alternating local/global attention). Not pretrained specifically for retrieval we fine-tune it from a more general starting point.
 
 Both are wrapped in a thin `nn.Module` (`src/model.py`) that runs the encoder on (query, positive, negative) batches and returns the first-position hidden state of each.
 
@@ -101,7 +101,7 @@ Bi-encoders see two very different kinds of text — terse queries and long docu
 <TXT> ... </TXT>     for body text
 ```
 
-The tokens are added to the tokenizer; the embedding matrix is resized (`resize_token_embeddings`); the six new rows are random-init and learn during fine-tuning what each role should mean geometrically.
+The tokens are added to the tokenizer the embedding matrix is resized (`resize_token_embeddings`) the six new rows are random-init and learn during fine-tuning what each role should mean geometrically.
 
 ---
 
@@ -122,7 +122,7 @@ Then we **L2-normalize**. Two reasons:
 For each query, sample one positive `p` from the qrels and `N` negatives `nᵢ`. With temperature `τ`:
 
 $$
-\mathcal{L} \;=\; -\log \frac{\exp(q \cdot p / \tau)}{\exp(q \cdot p / \tau) + \sum_i \exp(q \cdot n_i / \tau)}
+\mathcal{L} \=\ -\log \frac{\exp(q \cdot p / \tau)}{\exp(q \cdot p / \tau) + \sum_i \exp(q \cdot n_i / \tau)}
 $$
 
 Minimizing this simultaneously pushes `cos(q, p) → 1` (numerator up) and `cos(q, nᵢ) → −1` (denominator down).
@@ -133,9 +133,9 @@ The two distributions below are the actual `cos(q, d)` values measured on 120 sa
   <img src="plots/fig_similarity_dist.png" alt="Cosine similarity distributions of positive vs negative pairs, before and after fine-tuning" width="900">
 </p>
 
-The whole point of the loss is to widen `Δμ = mean(positive sim) − mean(negative sim)`. **Plain BGE gives `Δμ = +0.066`; the LoRA-tuned model gives `Δμ = +0.095` — a 44% increase in the margin that drives ranking.**
+The whole point of the loss is to widen `Δμ = mean(positive sim) − mean(negative sim)`. **Plain BGE gives `Δμ = +0.066` the LoRA-tuned model gives `Δμ = +0.095` — a 44% increase in the margin that drives ranking.**
 
-**Temperature.** A smaller `τ` sharpens the softmax, amplifying similarity gaps. With **random** negatives we use a gentler `τ = 0.2` (Ettin recipe); with **hard-mined** negatives we drop to `τ = 0.02` (BGE recipe) since now even tiny margins are meaningful.
+**Temperature.** A smaller `τ` sharpens the softmax, amplifying similarity gaps. With **random** negatives we use a gentler `τ = 0.2` (Ettin recipe) with **hard-mined** negatives we drop to `τ = 0.02` (BGE recipe) since now even tiny margins are meaningful.
 
 ---
 
@@ -144,7 +144,7 @@ The whole point of the loss is to widen `Δμ = mean(positive sim) − mean(nega
 Full fine-tuning of 33M–150M params on 3,633 documents would overfit and steamroll the pretrained weights. **LoRA** freezes the backbone and adds trainable low-rank updates to each linear layer:
 
 $$
-y \;=\; W x \;+\; \frac{\alpha}{r} \cdot (B A)\, x
+y \=\ W x \+\ \frac{\alpha}{r} \cdot (B A)\, x
 $$
 
 - `A ∈ ℝ^{r×d_in}` is Gaussian-init, `B ∈ ℝ^{d_out×r}` is zero-init — so the adapter starts as a **no-op**.
