@@ -144,7 +144,7 @@ The whole point of the loss is to widen `Δμ = mean(positive sim) − mean(nega
 Full fine-tuning of 33M–150M params on 3,633 documents would overfit and steamroll the pretrained weights. **LoRA** freezes the backbone and adds trainable low-rank updates to each linear layer:
 
 $$
-y \=\ W x \+\ \frac{\alpha}{r} \cdot (B A)\, x
+y \=\ W x \+\ \frac{\alpha}{r} \cdot (B A)\ x
 $$
 
 - `A ∈ ℝ^{r×d_in}` is Gaussian-init, `B ∈ ℝ^{d_out×r}` is zero-init — so the adapter starts as a **no-op**.
