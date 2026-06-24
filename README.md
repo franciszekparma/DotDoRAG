@@ -8,7 +8,7 @@
   <em>A small semantic search engine for medical / nutritional papers. A pretrained encoder is fine-tuned with LoRA so that queries and the documents that answer them land near each other in vector space, and retrieval at query time is a single matrix multiply against a pre-encoded corpus.</em>
 </p>
 
-<p>
+<p style="text-align: center;">
   <img alt="PyTorch" src="https://img.shields.io/badge/PyTorch-EE4C2C?logo=pytorch&logoColor=white" />
   <img alt="Python" src="https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white" />
   <img alt="NVIDIA A100" src="https://img.shields.io/badge/Trained_on-NVIDIA_A100-76B900?logo=nvidia&logoColor=white" />
