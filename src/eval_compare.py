@@ -209,6 +209,40 @@ def main():
   best = max(results, key=lambda r: r[1][f'ndcg@{K}'])
   print(f'\nBest by nDCG@{K}: {best[0]} ({best[1][f"ndcg@{K}"]:.4f})')
 
+  import json
+  meta = {
+    'BM25 (keyword)': ('BM25', 'keyword', None, None),
+    'plain BGE (zero-shot)': ('plain_bge', 'dense', BGE_NAME, None),
+    'bge_lora': ('bge_lora', 'dense', BGE_NAME, 'bge_lora/adapter_model.safetensors'),
+    'plain Ettin (zero-shot)': ('plain_etin', 'dense', ETIN_NAME, None),
+    'etin_lora': ('etin_lora', 'dense', ETIN_NAME, 'etin_lora/adapter_model.safetensors'),
+  }
+  payload = {
+    'dataset': 'NFCorpus',
+    'split': 'TEST',
+    'num_queries': len(query_ids),
+    'num_corpus': len(corpus_ids),
+    'k': K,
+    'metrics': [f'ndcg@{K}', f'recall@{K}', 'roc_auc', 'auc_pr'],
+    'results': [{
+      'method': meta[name][0],
+      'type': meta[name][1],
+      'base_model': meta[name][2],
+      'adapter': meta[name][3],
+      f'ndcg@{K}': round(m[f'ndcg@{K}'], 4),
+      f'recall@{K}': round(m[f'recall@{K}'], 4),
+      'roc_auc': round(m['roc_auc'], 4),
+      'auc_pr': round(m['auc_pr'], 4),
+    } for name, m in results],
+    'best_by_ndcg@10': meta[best[0]][0],
+    'eval_script': 'src/eval_compare.py',
+  }
+  out_path = os.path.join(repo_root, 'eval_results.json')
+  with open(out_path, 'w', encoding='utf-8') as f:
+    json.dump(payload, f, indent=2)
+    f.write('\n')
+  print(f'\nWrote {out_path}')
+
 
 if __name__ == '__main__':
   main()

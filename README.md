@@ -220,18 +220,18 @@ One matmul, one sort, one threshold filter.
 
 ## Results
 
-NFCorpus test split — **323 queries · 3,633 corpus documents · top-10 evaluation.** Numbers come from `src/eval_compare.py` and are persisted in [`eval_results.json`](eval_results.json).
+NFCorpus test split — **323 queries · 3,633 corpus documents · top-10 evaluation.** Numbers come from `src/eval_compare.py` and are persisted in [`eval_results.json`](eval_results.json). Besides ranking metrics (NDCG@10, Recall@10), each method is scored on **full-corpus ROC-AUC** and **AUC-PR** — per-query binary relevance (any graded doc with score > 0) against the raw similarity / BM25 score of all 3,633 documents, then macro-averaged over queries.
 
-| Method | Base | Adapter | NDCG@10 | Recall@10 |
-|---|---|---|---:|---:|
-| **bge_lora** | BGE-small-en-v1.5 | `bge_lora/` | **0.3925** | **0.2013** |
-| BM25 | — | — | 0.3052 | 0.1474 |
-| plain_bge (zero-shot) | BGE-small-en-v1.5 | — | 0.2053 | 0.1011 |
-| etin_lora | Ettin-150M | `etin_lora/` | 0.1016 | 0.0356 |
-| plain_etin (zero-shot) | Ettin-150M | — | 0.0103 | 0.0015 |
+| Method | Base | Adapter | NDCG@10 | Recall@10 | ROC-AUC | AUC-PR |
+|---|---|---|---:|---:|---:|---:|
+| **bge_lora** | BGE-small-en-v1.5 | `bge_lora/` | **0.3923** | **0.2013** | **0.8353** | **0.2401** |
+| plain_bge (zero-shot) | BGE-small-en-v1.5 | — | 0.3456 | 0.1631 | 0.7437 | 0.1782 |
+| BM25 | — | — | 0.3052 | 0.1474 | 0.6360 | 0.1491 |
+| etin_lora | Ettin-150M | `etin_lora/` | 0.1549 | 0.0615 | 0.7672 | 0.0947 |
+| plain_etin (zero-shot) | Ettin-150M | — | 0.0115 | 0.0019 | 0.5089 | 0.0128 |
 
 <p align="center">
-  <img src="plots/fig_metrics_bars.png" alt="NDCG vs Recall scatter" width="700">
+  <img src="plots/fig_metrics_bars.png" alt="NDCG, Recall, ROC-AUC, and AUC-PR by method" width="900">
 </p>
 
 <p align="center">
@@ -241,10 +241,10 @@ NFCorpus test split — **323 queries · 3,633 corpus documents · top-10 evalua
 
 **Takeaways**
 
-- Fine-tuned BGE beats BM25 by **+8.7 NDCG points (+29%)** and nearly **2×** zero-shot BGE.
-- NDCG@10 and Recall@10 move together — there is no precision-vs-recall trade-off here; better representations help both.
-- Ettin had no retrieval pretraining; LoRA still gave a **~10×** lift, but the starting point matters more than any single training trick.
-- The starting checkpoint dominates: *plain* BGE (33M params, retrieval-pretrained) beats *trained* Ettin (150M params, generic pretraining).
+- Fine-tuned BGE beats BM25 by **+8.7 NDCG points (+29%)** and leads on all four metrics — including **ROC-AUC (+31%)** and **AUC-PR (+61%)** vs BM25.
+- NDCG@10, Recall@10, ROC-AUC, and AUC-PR move together — better representations help both top-*k* ranking and full-corpus discrimination.
+- Ettin had no retrieval pretraining; LoRA still gave a large lift, but the starting checkpoint matters more than any single training trick.
+- The starting checkpoint dominates: *plain* BGE (33M params, retrieval-pretrained) beats *trained* Ettin (150M params, generic pretraining) on every metric.
 
 ---
 
@@ -303,10 +303,10 @@ python src/train_etin_lora.py
 python src/encode_corpus.py
 
 # 5) Run the full evaluation on NFCorpus test
-python src/eval_compare.py     # writes eval_results.json
+python src/eval_compare.py     # writes eval_results.json (NDCG, Recall, ROC-AUC, AUC-PR)
 
 # 6) Regenerate README plots from eval_results.json
-python src/make_plots.py       # writes plots/*.png
+python src/make_plots.py       # writes plots/*.png (fig_metrics_bars + fig_lift use all 4 metrics)
 
 # 7) Launch the UI
 python app/app.py              # http://127.0.0.1:5050
@@ -332,8 +332,8 @@ src/
   encode_corpus.py                one-shot encoding pass → corpus_encoded.pt
   search.py                       CLI search with clickable PDF links
   indexer.py                      encode-and-append helper for the web UI
-  eval_compare.py                 NDCG@10 / Recall@10 / ROC-AUC across methods
-  make_plots.py                   generates the README figures
+  eval_compare.py                 NDCG@10 / Recall@10 / ROC-AUC / AUC-PR across methods
+  make_plots.py                   generates the README figures (4-metric bar charts + geometry plots)
 
 app/
   app.py                          Flask wrapper

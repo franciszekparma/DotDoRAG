@@ -2,7 +2,7 @@
 
 Two kinds of plots:
   1. From eval_results.json (cheap):
-       fig_metrics_bars.png  fig_lift.png
+       fig_metrics_bars.png  fig_lift.png   — all four metrics per method
   2. From real model outputs (loads BGE base + LoRA, encodes a sample):
        fig_similarity_dist.png  fig_embedding_tsne.png
 
@@ -79,63 +79,71 @@ def plots_from_eval_json():
   results = sorted(data['results'], key=lambda r: order.index(r['method']))
   labels = [r['method'] for r in results]
   pretty = [PRETTY[m] for m in labels]
-  ndcg = np.array([r['ndcg@10'] for r in results])
-  recall = np.array([r['recall@10'] for r in results])
+  metric_keys = ['ndcg@10', 'recall@10', 'roc_auc', 'auc_pr']
+  metric_labels = ['NDCG@10', 'Recall@10', 'ROC-AUC', 'AUC-PR']
+  hatches = [None, '///', '..', 'xx']
   colors = [PALETTE[m] for m in labels]
 
   # ---------- Figure: grouped metric bars ----------
-  fig, ax = plt.subplots(figsize=(9.5, 5.2))
+  fig, ax = plt.subplots(figsize=(12, 5.4))
   x = np.arange(len(labels))
-  w = 0.36
-  b1 = ax.bar(x - w/2, ndcg,   w, color=colors, edgecolor='#0f172a', linewidth=0.7, label='NDCG@10')
-  b2 = ax.bar(x + w/2, recall, w, color=colors, edgecolor='#0f172a', linewidth=0.7, label='Recall@10',
-              alpha=0.55, hatch='///')
-  for bar, val in zip(b1, ndcg):
-    ax.text(bar.get_x() + bar.get_width()/2, val + 0.008, f'{val:.3f}',
-            ha='center', va='bottom', fontsize=9, fontweight='bold')
-  for bar, val in zip(b2, recall):
-    ax.text(bar.get_x() + bar.get_width()/2, val + 0.008, f'{val:.3f}',
-            ha='center', va='bottom', fontsize=9, color='#334155')
+  n_m = len(metric_keys)
+  w = 0.17
+  bars_all = []
+  for mi, (key, mlbl, hatch) in enumerate(zip(metric_keys, metric_labels, hatches)):
+    vals = np.array([r[key] for r in results])
+    offset = (mi - (n_m - 1) / 2) * w
+    bars = ax.bar(
+      x + offset, vals, w, color=colors, edgecolor='#0f172a', linewidth=0.7,
+      label=mlbl, alpha=0.95 if mi % 2 == 0 else 0.55, hatch=hatch,
+    )
+    bars_all.append(bars)
+    for bar, val in zip(bars, vals):
+      ax.text(bar.get_x() + bar.get_width() / 2, val + 0.006, f'{val:.3f}',
+              ha='center', va='bottom', fontsize=7.5, fontweight='bold' if mi == 0 else 'normal')
   ax.set_xticks(x); ax.set_xticklabels(pretty)
   ax.set_ylabel('Score')
   ax.set_title('NFCorpus test — retrieval quality by method')
-  ax.set_ylim(0, max(ndcg.max(), recall.max()) * 1.22)
-  # legend: neutral patches, not colored per-method
+  ax.set_ylim(0, max(r[k] for r in results for k in metric_keys) * 1.22)
   from matplotlib.patches import Patch
   legend_handles = [
     Patch(facecolor='#cbd5e1', edgecolor='#0f172a', label='NDCG@10'),
     Patch(facecolor='#cbd5e1', edgecolor='#0f172a', hatch='///', alpha=0.55, label='Recall@10'),
+    Patch(facecolor='#cbd5e1', edgecolor='#0f172a', hatch='..', label='ROC-AUC'),
+    Patch(facecolor='#cbd5e1', edgecolor='#0f172a', hatch='xx', label='AUC-PR'),
   ]
-  ax.legend(handles=legend_handles, loc='upper left', frameon=False)
+  ax.legend(handles=legend_handles, loc='upper left', frameon=False, ncol=2)
   plt.tight_layout()
   plt.savefig(os.path.join(OUT, 'fig_metrics_bars.png'), dpi=180, bbox_inches='tight')
   plt.close()
 
   # ---------- Figure: lift over BM25 ----------
-  bm25_ndcg = next(r['ndcg@10'] for r in results if r['method'] == 'BM25')
-  bm25_recall = next(r['recall@10'] for r in results if r['method'] == 'BM25')
+  bm25 = next(r for r in results if r['method'] == 'BM25')
   methods_no_bm25 = [m for m in labels if m != 'BM25']
   pretty_nb = [PRETTY[m] for m in methods_no_bm25]
-  ndcg_lift = np.array([
-    (next(r['ndcg@10'] for r in results if r['method'] == m) - bm25_ndcg) / bm25_ndcg * 100
-    for m in methods_no_bm25])
-  recall_lift = np.array([
-    (next(r['recall@10'] for r in results if r['method'] == m) - bm25_recall) / bm25_recall * 100
-    for m in methods_no_bm25])
+  lift_keys = ['ndcg@10', 'recall@10', 'roc_auc', 'auc_pr']
+  lift_labels = ['ΔNDCG@10', 'ΔRecall@10', 'ΔROC-AUC', 'ΔAUC-PR']
+  lift_hatches = [None, '///', '..', 'xx']
 
-  fig, ax = plt.subplots(figsize=(9.5, 5.2))
+  fig, ax = plt.subplots(figsize=(12, 5.4))
   x = np.arange(len(methods_no_bm25))
-  w = 0.36
-  c2 = [PALETTE[m] for m in methods_no_bm25]
-  ax.bar(x - w/2, ndcg_lift,   w, color=c2, edgecolor='#0f172a', linewidth=0.7, label='ΔNDCG@10')
-  ax.bar(x + w/2, recall_lift, w, color=c2, edgecolor='#0f172a', linewidth=0.7, alpha=0.55, hatch='///', label='ΔRecall@10')
+  n_m = len(lift_keys)
+  w = 0.17
+  for mi, (key, mlbl, hatch) in enumerate(zip(lift_keys, lift_labels, lift_hatches)):
+    base = bm25[key]
+    lifts = np.array([
+      (next(r[key] for r in results if r['method'] == m) - base) / base * 100
+      for m in methods_no_bm25
+    ])
+    offset = (mi - (n_m - 1) / 2) * w
+    c2 = [PALETTE[m] for m in methods_no_bm25]
+    ax.bar(x + offset, lifts, w, color=c2, edgecolor='#0f172a', linewidth=0.7,
+           alpha=0.95 if mi % 2 == 0 else 0.55, hatch=hatch)
+    for i, v in enumerate(lifts):
+      off = 3 if v >= 0 else -10
+      ax.text(i + offset, v + off, f'{v:+.0f}%', ha='center', fontsize=7.5,
+              fontweight='bold' if mi == 0 else 'normal')
   ax.axhline(0, color='#0f172a', linewidth=1)
-  for i, v in enumerate(ndcg_lift):
-    off = 3 if v >= 0 else -10
-    ax.text(i - w/2, v + off, f'{v:+.0f}%', ha='center', fontsize=10, fontweight='bold')
-  for i, v in enumerate(recall_lift):
-    off = 3 if v >= 0 else -10
-    ax.text(i + w/2, v + off, f'{v:+.0f}%', ha='center', fontsize=10, color='#334155')
   ax.set_xticks(x); ax.set_xticklabels(pretty_nb)
   ax.set_ylabel('Relative change vs BM25  (%)')
   ax.set_title('Lift / drop relative to BM25 baseline')
@@ -143,8 +151,10 @@ def plots_from_eval_json():
   legend_handles = [
     Patch(facecolor='#cbd5e1', edgecolor='#0f172a', label='ΔNDCG@10'),
     Patch(facecolor='#cbd5e1', edgecolor='#0f172a', hatch='///', alpha=0.55, label='ΔRecall@10'),
+    Patch(facecolor='#cbd5e1', edgecolor='#0f172a', hatch='..', label='ΔROC-AUC'),
+    Patch(facecolor='#cbd5e1', edgecolor='#0f172a', hatch='xx', label='ΔAUC-PR'),
   ]
-  ax.legend(handles=legend_handles, loc='lower right', frameon=False)
+  ax.legend(handles=legend_handles, loc='lower right', frameon=False, ncol=2)
   plt.tight_layout()
   plt.savefig(os.path.join(OUT, 'fig_lift.png'), dpi=180, bbox_inches='tight')
   plt.close()
