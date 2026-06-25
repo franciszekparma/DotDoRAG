@@ -43,7 +43,7 @@
 8. [Hard negatives and teacher distillation](#hard-negatives-and-teacher-distillation)
 9. [Corpus encoding and search](#corpus-encoding-and-search)
 10. [Results](#results)
-11. [Web UI — MedSearch](#web-ui--medsearch)
+11. [Web UI — DotDoRAG](#web-ui--DotDoRAG)
 12. [Reproducing](#reproducing)
 13. [Repository layout](#repository-layout)
 14. [What's intentionally missing](#whats-intentionally-missing)
@@ -231,11 +231,9 @@ NFCorpus test split — **323 queries · 3,633 corpus documents · top-10 evalua
 | plain_etin (zero-shot) | Ettin-150M | — | 0.0115 | 0.0019 | 0.5089 | 0.0128 |
 
 <p align="center">
-  <img src="plots/fig_metrics_bars.png" alt="NDCG, Recall, ROC-AUC, and AUC-PR by method" width="900">
-</p>
-
-<p align="center">
-  <img src="plots/fig_lift.png" alt="Lift over BM25" width="700">
+  <img src="plots/fig_metrics_bars.png" alt="NDCG, Recall, ROC-AUC, and AUC-PR by method" width="800">
+  &nbsp;&nbsp;
+  <img src="plots/fig_lift.png" alt="Lift over BM25" width="800">
 </p>
 
 
@@ -248,33 +246,46 @@ NFCorpus test split — **323 queries · 3,633 corpus documents · top-10 evalua
 
 ---
 
-## Web UI — MedSearch
+## Web UI — DotDoRAG
 
 A Flask wrapper around the same encoder and the same `corpus_encoded.pt`. No new ML — just a UI, plus the ability to grow the index after training.
 
 ### Main page
 
 <p align="center">
-  <img src="imgs/main_page.png" alt="MedSearch main page" width="540">
+  <img src="imgs/main_page.png" alt="DotDoRAG main page" width="540">
 </p>
 
-Search bar with two knobs:
+Search bar with three knobs:
 
 - **Top-K** — maximum number of results to return.
 - **Threshold** — minimum cosine similarity to count as a hit.
+- **Model** — encoder used for retrieval.
 
 ### Searching
 
 <p align="center">
-  <img src="imgs/sample_search.png" alt="MedSearch search results" width="500">
+  <img src="imgs/sample_search.png" alt="DotDoRAG search results" width="500">
 </p>
 
 Query → `<QRY>...</QRY>` → encoded → L2-normalized → `que_vec @ doc_vecs.T` → top-K. The score next to each result is raw cosine similarity. The query *"How to eat healthy"* pulls back *"Essentials of Healthy Eating: A Guide"* with only one lexical word in common — that is the encoder doing its job.
 
+### Switching models
+
+<p align="center">
+  <img src="imgs/model_select.png" alt="DotDoRAG model selection" width="540">
+</p>
+
+The UI is not tied to a single encoder. A dropdown lets you switch between the available retrieval models.
+
+Changing the selection reloads the corresponding adapter and its matching `corpus_encoded.pt`, so all subsequent searches run against that model's embedding space. No re-indexing is required as long as the corpus was already encoded with the selected model.
+
+This makes it easy to compare retrieval quality, ranking behavior, and similarity scores across different encoder backbones from the same interface.
+
 ### Adding a document
 
 <p align="center">
-  <img src="imgs/doc_add.png" alt="MedSearch add-document form" width="540">
+  <img src="imgs/doc_add.png" alt="DotDoRAG add-document form" width="540">
 </p>
 
 Three fields: title, abstract/text (this is what gets indexed; the PDF itself is **not** parsed), and the PDF file. On submit, `/add`:
@@ -337,7 +348,7 @@ src/
 
 app/
   app.py                          Flask wrapper
-  templates/                      MedSearch UI
+  templates/                      DotDoRAG UI
 
 bge_lora/                         trained BGE adapter (~13 MB)
 etin_lora/                        trained Ettin adapter
