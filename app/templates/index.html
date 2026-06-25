@@ -168,6 +168,19 @@
     transition: border-color .15s ease, background .15s ease;
   }
   .param input:focus { border-color: var(--accent); background: #fff; }
+  .param select {
+    border: 1px solid var(--rule);
+    background: var(--bg-soft);
+    color: var(--ink);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-family: inherit;
+    outline: none;
+    cursor: pointer;
+  }
+  .param select:focus { border-color: var(--accent); background: #fff; }
 
   /* Results meta */
   .meta-row {
@@ -479,6 +492,16 @@
 
   <div class="params">
     <div class="param">
+      <span class="param-label">Model</span>
+      <select id="model">
+        <option value="bge_lora" selected>BGE + LoRA</option>
+        <option value="bge">BGE</option>
+        <option value="etin_lora">Ettin + LoRA</option>
+        <option value="etin">Ettin</option>
+        <option value="bm25">BM25</option>
+      </select>
+    </div>
+    <div class="param">
       <span class="param-label">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="4" y1="6" x2="20" y2="6" />
@@ -614,6 +637,7 @@
     if (!query) { qInput.focus(); return; }
     const top_k = parseInt($('topk').value || '5', 10);
     const threshold = parseFloat($('thr').value || '0.5');
+    const model = $('model').value;
 
     goBtn.disabled = true;
     showSkeletons();
@@ -624,7 +648,7 @@
       const res = await fetch('/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, top_k, threshold }),
+        body: JSON.stringify({ query, top_k, threshold, model }),
       });
       const data = await res.json();
       latencyEl.textContent = Math.round(performance.now() - t0);
