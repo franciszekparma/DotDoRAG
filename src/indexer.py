@@ -35,9 +35,6 @@ def encode_doc(model, tokenizer, device, title, text):
 
 
 def append_to_index(doc_vecs, pdf_paths, new_vec, new_path, encoded_path=utils.ENCODED_PATH):
-  """Append a vector + path to the in-memory tensors and persist to disk.
-  Returns the updated doc_vecs tensor (may be a new object).
-  """
   with _lock:
     doc_vecs = torch.cat([doc_vecs, new_vec], dim=0)
     pdf_paths.append(new_path)

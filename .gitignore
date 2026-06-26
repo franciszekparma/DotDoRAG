@@ -1,8 +1,13 @@
 .history
 __pycache__
 src/train_experiments
-.claude
 .DS_Store
 *.pt
 _adapters/
-bge_lora/adapter_model.safetensors
+data/nfcorpus/
+data/nfcorpus.zip
+adapters/bge_lora/adapter_model.safetensors
+adapters/ettin_lora/adapter_model.safetensors
+adapters/bge_lora/adapter_bge.safetensors
+adapters/ettin_lora/adapter_ettin.safetensors
+DotDoRAG_presentation.pptx

@@ -18,7 +18,7 @@ import utils
 from model import model, tokenizer, device
 from indexer import build_doc_text, encode_doc, append_to_index
 
-MODELS = ('bge', 'bge_lora', 'etin', 'etin_lora', 'bm25')
+MODELS = ('bge', 'bge_lora', 'ettin', 'ettin_lora', 'bm25')
 _ta = utils.AddTokens()
 _doc_vecs_cache = {}
 _enc_cache = {}
@@ -27,7 +27,9 @@ _enc_cache = {}
 app = Flask(__name__)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.jinja_env.auto_reload = True
-app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB upload cap
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
+
+utils.maybe_download_weights()
 
 print('Loading encoded corpus...')
 _cached = torch.load(utils.ENCODED_PATH, map_location=device)
@@ -41,8 +43,6 @@ model.eval()
 _enc_cache['bge_lora'] = (model.enc, tokenizer)
 
 def load_metadata():
-  """Build a metadata index keyed by both the title and the filename stem so we can
-  look up by either."""
   meta = {}
   if not os.path.exists(utils.CORPUS_JSONL):
     return meta
@@ -109,15 +109,15 @@ def _get_encoder(name):
   if name in _enc_cache:
     return _enc_cache[name]
   tok = AutoTokenizer.from_pretrained(
-    utils.BGE_NAME if name.startswith('bge') else utils.ETIN_NAME
+    utils.BGE_NAME if name.startswith('bge') else utils.ETTIN_NAME
   )
   tok.add_tokens(list(_ta.new_tokens.values()))
   enc = AutoModel.from_pretrained(
-    utils.BGE_NAME if name.startswith('bge') else utils.ETIN_NAME
+    utils.BGE_NAME if name.startswith('bge') else utils.ETTIN_NAME
   )
   enc.resize_token_embeddings(len(tok))
   if name.endswith('_lora'):
-    adapter = os.path.join(utils.BASE_DIR, name)
+    adapter = os.path.join(utils.BASE_DIR, 'adapters', name)
     enc = PeftModel.from_pretrained(enc, adapter)
   _enc_cache[name] = (enc.to(device).eval(), tok)
   return _enc_cache[name]
@@ -126,8 +126,8 @@ def _get_encoder(name):
 def _get_doc_vecs(name):
   if name not in _doc_vecs_cache:
     enc, tok = _get_encoder(name)
-    texts = tagged_doc_texts if name == 'etin_lora' else doc_texts
-    max_len = utils.EVAL_ETIN_MAX_LEN if name.startswith('etin') else utils.MAX_DOC_LENGTH
+    texts = tagged_doc_texts if name == 'ettin_lora' else doc_texts
+    max_len = utils.EVAL_ETTIN_MAX_LEN if name.startswith('ettin') else utils.MAX_DOC_LENGTH
     _doc_vecs_cache[name] = _encode_texts(enc, tok, texts, max_len)
   return _doc_vecs_cache[name]
 
@@ -138,12 +138,12 @@ def _encode_query(name, query):
   if name.startswith('bge'):
     text = utils.BGE_QUERY_PREFIX + query
     max_len = utils.MAX_QUERY_LENGTH
-  elif name == 'etin_lora':
+  elif name == 'ettin_lora':
     text = _ta.add_query_tokens(query)
-    max_len = utils.EVAL_ETIN_MAX_LEN
+    max_len = utils.EVAL_ETTIN_MAX_LEN
   else:
     text = query
-    max_len = utils.EVAL_ETIN_MAX_LEN
+    max_len = utils.EVAL_ETTIN_MAX_LEN
   batch = tok([text], padding=True, truncation=True, max_length=max_len, return_tensors='pt')
   batch = {k: v.to(device) for k, v in batch.items()}
   vec = enc(**batch).last_hidden_state[..., 0, :]
@@ -249,8 +249,8 @@ def add_document():
   global bm25_index
   bm25_index = BM25Okapi([t.lower().split() for t in doc_texts])
   _doc_vecs_cache.pop('bge', None)
-  _doc_vecs_cache.pop('etin', None)
-  _doc_vecs_cache.pop('etin_lora', None)
+  _doc_vecs_cache.pop('ettin', None)
+  _doc_vecs_cache.pop('ettin_lora', None)
 
   entry = {'title': title, 'snippet': text[:320]}
   META_BY_KEY[safe_name] = entry
