@@ -257,7 +257,7 @@ A Flask wrapper around the same encoder and the same `corpus_encoded.pt`. No new
 ### Main page
 
 <p align="center">
-  <img src="imgs/main_page.png" alt="DotDoRAG main page" width="800">
+  <img src="imgs/main_page.png" alt="DotDoRAG main page" width="600">
 </p>
 
 Search bar with three controls:
@@ -269,7 +269,7 @@ Search bar with three controls:
 ### Searching
 
 <p align="center">
-  <img src="imgs/sample_search.png" alt="DotDoRAG search results" width="800">
+  <img src="imgs/sample_search.png" alt="DotDoRAG search results" width="600">
 </p>
 
 Query → `<QRY>...</QRY>` → encoded → L2-normalized → `que_vec @ doc_vecs.T` → top-K. The score next to each result is raw cosine similarity. The query *"How to eat healthy"* pulls back *"Essentials of Healthy Eating: A Guide"* with only one lexical word in common. That is the encoder doing its job.
@@ -277,7 +277,7 @@ Query → `<QRY>...</QRY>` → encoded → L2-normalized → `que_vec @ doc_vecs
 ### Switching models
 
 <p align="center">
-  <img src="imgs/model_select.png" alt="DotDoRAG model selection" width="800">
+  <img src="imgs/model_select.png" alt="DotDoRAG model selection" width="600">
 </p>
 
 A dropdown lets you switch between available retrieval models. Changing the selection reloads the corresponding adapter, so all subsequent searches run against that model's embedding space. No re-indexing is required as long as the corpus was already encoded with the selected model.
@@ -285,7 +285,7 @@ A dropdown lets you switch between available retrieval models. Changing the sele
 ### Adding a document
 
 <p align="center">
-  <img src="imgs/doc_add.png" alt="DotDoRAG add-document form" width="800">
+  <img src="imgs/doc_add.png" alt="DotDoRAG add-document form" width="600">
 </p>
 
 Three fields: title, abstract/text (this is what gets indexed; the PDF itself is **not** parsed), and the PDF file. On submit, `/add`:
