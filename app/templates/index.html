@@ -681,6 +681,15 @@
   modal.addEventListener('click', (e) => { if (e.target === modal) closePdf(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePdf(); });
 
+  $('model').addEventListener('change', () => {
+    const thr = $('thr');
+    if ($('model').value === 'bm25') {
+      thr.min = 0; thr.max = 20; thr.step = 0.5; thr.value = 1;
+    } else {
+      thr.min = 0; thr.max = 1; thr.step = 0.05; thr.value = 0.5;
+    }
+  });
+
   // Add-document handler
   const addBtn = $('add-btn');
   const addStatus = $('add-status');

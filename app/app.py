@@ -187,7 +187,7 @@ def search():
   for s, i in zip(scores, idxs):
     s = float(s)
     i = int(i)
-    if model_name != 'bm25' and s < threshold:
+    if s < threshold:
       break
     path = pdf_paths[i]
     filename = os.path.basename(path)
