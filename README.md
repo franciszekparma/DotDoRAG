@@ -229,16 +229,17 @@ NFCorpus test split — **323 queries · 3,633 corpus documents · top-10 evalua
 | ettin_lora | Ettin-150M | `adapters/ettin_lora/` | 0.1549 | 0.0615 | 0.7672 | 0.0947 |
 | plain_ettin (zero-shot) | Ettin-150M | none | 0.0115 | 0.0019 | 0.5089 | 0.0128 |
 
-<div style="display: flex; justify-content: center; align-items: flex-start; gap: 20px;">
-  <img src="plots/fig_metrics_bars.png"
-       alt="NDCG, Recall, ROC-AUC, and AUC-PR by method"
-       width="800">
+<p align="center">
 
-  <img src="plots/fig_lift.png"
-       alt="Lift over BM25"
-       width="800">
-</div>
+  <img src="plots/fig_metrics_bars.png" alt="NDCG, Recall, ROC-AUC, and AUC-PR by method" width="800">
 
+</p>
+
+<p align="center">
+
+  <img src="plots/fig_lift.png" alt="Lift over BM25" width="800">
+
+</p>
 
 **Takeaways**
 
