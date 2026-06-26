@@ -229,7 +229,7 @@ NFCorpus test split — **323 queries · 3,633 corpus documents · top-10 evalua
 | ettin_lora | Ettin-150M | `adapters/ettin_lora/` | 0.1549 | 0.0615 | 0.7672 | 0.0947 |
 | plain_ettin (zero-shot) | Ettin-150M | none | 0.0115 | 0.0019 | 0.5089 | 0.0128 |
 
-<p align="center" style="margin-bottom: 5px;">
+<p align="center" style="margin-bottom: 10px;">
   <img src="plots/fig_metrics_bars.png" alt="NDCG, Recall, ROC-AUC, and AUC-PR by method" width="800">
 </p>
 
